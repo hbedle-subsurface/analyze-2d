@@ -21,15 +21,15 @@ function helpDocument(){
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" media="print" onload="this.media='all'"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
 <title>Analyze 2D \u2014 reference</title>
 <style>
-:root{--ink:#16191C;--slate:#5C6670;--rule:#C9CDD2;--fill:#F4F6F7;--red:#841617}
+:root{--ink:#1f1d18;--slate:#5a5446;--rule:#d9cba2;--fill:#efe5c8;--red:#c8362d}
 *{box-sizing:border-box}
-body{margin:0;font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  color:var(--ink);background:#fff}
+body{margin:0;font:16px/1.55 Barlow,"Helvetica Neue",Arial,sans-serif;
+  color:var(--ink);background:#fffaf0}
 header{padding:1rem 1.4rem .8rem;border-bottom:1px solid var(--rule);background:var(--fill)}
-header h1{margin:0;font-size:1rem;font-weight:600}
+header h1{margin:0;font-family:\"Barlow Condensed\",Arial,sans-serif;font-size:1.6rem;font-weight:700}
 header p{margin:.2rem 0 0;font-size:.82rem;color:var(--slate)}
 main{padding:1.2rem 1.4rem 4rem;max-width:64ch}
 nav{padding:1rem 1.4rem;border-bottom:1px solid var(--rule);font-size:.86rem}
@@ -41,8 +41,7 @@ nav a{color:var(--ink);text-decoration:none}
 nav a:hover{color:var(--red);text-decoration:underline}
 section{padding-top:1.2rem;margin-bottom:2rem;border-top:1px solid var(--rule)}
 section:first-of-type{border-top:0;padding-top:0}
-h2{font-size:1rem;color:var(--red);margin:0 0 .5rem;
-  letter-spacing:.06em;text-transform:uppercase}
+h2{font-family:\"Barlow Condensed\",Arial,sans-serif;font-size:1.5rem;color:var(--ink);margin:0 0 .5rem}
 h3{font-size:.86rem;margin:1.1rem 0 .3rem}
 p{margin:.55rem 0}
 b{font-weight:600}

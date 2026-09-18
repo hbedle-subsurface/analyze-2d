@@ -74,42 +74,41 @@ function energyShare(rem, inp){
 }
 function fmt(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 2 : d) : "–"; }
 
-/* ---------- masthead, workflow strip, footer ---------- */
+/* ---------- header, step tags, cards, footer ---------- */
+/* Axes and color bars sit on the dark board, so they are drawn in chalk. */
+AX = {rule:"#3b4549", tick:"#9fb0b6", label:"#dfe6e9",
+      font:"11px Barlow, Arial, sans-serif", labelFont:"12px Barlow, Arial, sans-serif"};
+
 async function pageShell(stepId){
   LINE = await kvGet("line");
   const d = await kvGet("display");
   if (d) DISP = Object.assign(DISP, d);
   const have = await stageList().catch(() => []);
   const top = document.createElement("header");
-  top.className = "top";
-  top.innerHTML =
-    '<h1><a href="' + PREFIX + 'index.html">Analyze 2D</a></h1>' +
-    '<span class="line">' + (LINE ? "Line: <b>" + LINE.name + "</b>, " + LINE.nx + " traces, " +
-      (LINE.dt/1000) + " ms" : "No line open") + "</span>" +
-    '<span class="spacer"></span>' +
-    '<button class="help ref" data-help="start">Reference</button>' +
-    '<span class="privacy">The file is read in this browser and never uploaded.</span>';
-  const nav = document.createElement("nav");
-  nav.className = "flow";
-  nav.setAttribute("aria-label", "Workflow");
-  nav.innerHTML = STEPS.map(s => {
-    let cls = "";
-    if (s.stage){
-      if (have.includes(s.stage)) cls = "done";
-      else if (s.id !== "line") cls = "skipped";
-    }
-    return '<a href="' + PREFIX + 'pages/' + s.file + '" class="' + cls + '"' +
-      (s.id === stepId ? ' aria-current="page"' : "") +
-      ' title="' + s.blurb + '"><span class="n">' + s.n + "</span>" + s.title + "</a>";
+  top.className = "bar no-gloss";
+  const tags = STEPS.map(s => {
+    let cls = "tag";
+    if (s.stage && s.id !== "line" && !have.includes(s.stage)) cls += " skipped";
+    return '<a class="' + cls + '" href="' + PREFIX + 'pages/' + s.file + '"' +
+      (s.id === stepId ? ' aria-current="page"' : "") + ' title="' + s.blurb + '"><span>' + s.n + "</span>" + s.title + "</a>";
   }).join("");
-  document.body.prepend(nav);
+  top.innerHTML =
+    '<div class="case"><h1><a href="' + PREFIX + 'index.html">Analyze 2D</a></h1>' +
+    "<p>" + (LINE ? "<b>" + LINE.name + "</b>: " + LINE.nx + " traces, " + (LINE.dt / 1000) + " ms sampling"
+                  : "Attributes, self-organizing maps and SHAP on a 2D seismic line") + "</p></div>" +
+    '<nav class="stages" aria-label="Steps"><button class="tag methods" data-help="start">Reference</button>' + tags + "</nav>";
   document.body.prepend(top);
+
+  // the controls on the right are grouped into pinned cards, one per heading
+  const side = document.querySelector("aside.side");
+  if (side) cardify(side);
+
   const foot = document.createElement("footer");
   foot.className = "foot";
   foot.innerHTML =
-    "<p>Analyze 2D. Heather Bedle, University of Oklahoma, with the AASPI consortium. " +
-    'Licensed <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>. ' +
-    "The SCAN029 sample data are third-party material under their own terms; see NOTICE.md.</p>";
+    "<p>The file is read in this browser and never uploaded. Analyze 2D, Heather Bedle, University of Oklahoma, with the AASPI consortium. " +
+    'Content <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>. ' +
+    "Sample seismic: SCAN line L2EBN2020ASCAN029, EBN and TNO, via NLOG; see NOTICE.md.</p>";
   document.body.append(foot);
   document.addEventListener("click", e => {
     const b = e.target.closest("[data-help]");
@@ -118,13 +117,28 @@ async function pageShell(stepId){
   return LINE;
 }
 
+/* Wrap the loose children of a column into cards, starting a new card at
+   every h2. Children that are already cards are left as they are. */
+function cardify(col){
+  const kids = [...col.children];
+  let card = null;
+  for (const el of kids){
+    if (el.classList.contains("card")){ card = null; continue; }
+    if (el.tagName === "H2" || !card){
+      card = document.createElement("div");
+      card.className = "card";
+      col.insertBefore(card, el);
+    }
+    card.append(el);
+  }
+}
+
 /* The next step link under the panels. */
 function nextLink(stepId){
   const i = STEPS.findIndex(s => s.id === stepId);
   const nx = STEPS[i + 1];
   if (!nx) return "";
-  return '<div class="nextstep"><a class="btnlink" href="' + nx.file + '">Next: ' +
-         nx.n + ". " + nx.title + "</a></div>";
+  return '<div class="nextstep no-gloss"><a href="' + nx.file + '">Next: ' + nx.n + ". " + nx.title + "</a></div>";
 }
 
 function emptyState(host, msg){
@@ -267,11 +281,11 @@ function drawBoxOverlay(id, box, sec, dim){
   const x0 = box.i0 / Math.max(1, sec.nx - 1) * w, x1 = box.i1 / Math.max(1, sec.nx - 1) * w;
   const y0 = box.j0 / Math.max(1, sec.ns - 1) * h, y1 = box.j1 / Math.max(1, sec.ns - 1) * h;
   if (dim){
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillStyle = "rgba(17,17,17,0.6)";
     ctx.fillRect(0, 0, w, y0); ctx.fillRect(0, y1, w, h - y1);
     ctx.fillRect(0, y0, x0, y1 - y0); ctx.fillRect(x1, y0, w - x1, y1 - y0);
   }
-  ctx.strokeStyle = "#841617"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+  ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
   ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
 }
 function enableBox(id, onBox){
@@ -301,6 +315,7 @@ function enableBox(id, onBox){
 /* ---------- display controls ---------- */
 function displayControls(host, onChange){
   const div = document.createElement("div");
+  div.className = "card";
   div.innerHTML =
     '<h2>Display<button class="help" data-help="display">Learn more</button></h2>' +
     '<label for="dCmap">Color map</label>' +

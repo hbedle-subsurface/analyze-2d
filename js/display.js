@@ -2,6 +2,10 @@
    that never sets it draws every sample. */
 let DISPLAY_H = 0;
 
+/* Colors and fonts of the axes and color bars, set by the page. */
+let AX = {rule:"#C9CDD2", tick:"#5C6670", label:"#16191C",
+          font:"10px ui-monospace, monospace", labelFont:"10px system-ui, sans-serif"};
+
 /* ============================ display ============================ */
 /* One table of color maps for everything: the seismic panels and the
    attributes drew from separate tables, so a name offered in one editor
@@ -225,10 +229,10 @@ function drawYAxis(id, t0, t1, unit, secPerUnit, vkms){
   if (!ok) return;
   const ticks = niceTicks(t0, t1, Math.max(3, Math.round(h / 55)));
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : (t1 - t0);
-  ctx.strokeStyle = "#C9CDD2"; ctx.lineWidth = 1;
+  ctx.strokeStyle = AX.rule; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(w - 0.5, 0); ctx.lineTo(w - 0.5, h); ctx.stroke();
-  ctx.fillStyle = "#5C6670";
-  ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillStyle = AX.tick;
+  ctx.font = AX.font;
   ctx.textAlign = "right"; ctx.textBaseline = "middle";
   for (const v of ticks){
     const y = (v - t0) / (t1 - t0) * h;
@@ -236,17 +240,17 @@ function drawYAxis(id, t0, t1, unit, secPerUnit, vkms){
     ctx.beginPath(); ctx.moveTo(w - 5, y + 0.5); ctx.lineTo(w, y + 0.5); ctx.stroke();
     ctx.fillText(fmtTick(v, step), w - 8, Math.min(h - 6, Math.max(6, y)));
     if (vkms && w >= 90){
-      ctx.fillStyle = "#C9CDD2";
+      ctx.fillStyle = AX.rule;
       ctx.fillText((v * secPerUnit * vkms / 2).toFixed(0),
                    w - 42, Math.min(h - 6, Math.max(6, y)));
-      ctx.fillStyle = "#5C6670";
+      ctx.fillStyle = AX.tick;
     }
   }
   if (h > 110){
     ctx.save();
     ctx.translate(10, h / 2); ctx.rotate(-Math.PI / 2);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = "9px system-ui, sans-serif"; ctx.fillStyle = "#16191C";
+    ctx.font = AX.labelFont; ctx.fillStyle = AX.label;
     ctx.fillText(vkms && w >= 90 ? unit + "   |   depth (km)" : unit, 0, 0);
     ctx.restore();
   }
@@ -257,10 +261,10 @@ function drawXAxis(id, x0, x1, label){
   if (!ok) return;
   const ticks = niceTicks(x0, x1, Math.max(3, Math.round(w / 90)));
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : (x1 - x0);
-  ctx.strokeStyle = "#C9CDD2"; ctx.lineWidth = 1;
+  ctx.strokeStyle = AX.rule; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(0, 0.5); ctx.lineTo(w, 0.5); ctx.stroke();
-  ctx.fillStyle = "#5C6670";
-  ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillStyle = AX.tick;
+  ctx.font = AX.font;
   ctx.textAlign = "center"; ctx.textBaseline = "top";
   for (const v of ticks){
     const x = (v - x0) / (x1 - x0) * w;
@@ -268,7 +272,7 @@ function drawXAxis(id, x0, x1, label){
     ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, 5); ctx.stroke();
     ctx.fillText(fmtTick(v, step), Math.min(w - 14, Math.max(14, x)), 7);
   }
-  ctx.font = "10px system-ui, sans-serif"; ctx.fillStyle = "#16191C";
+  ctx.font = AX.labelFont; ctx.fillStyle = AX.label;
   ctx.fillText(label, w / 2, 20);
 }
 
@@ -287,13 +291,13 @@ function drawColorbar(id, vmin, vmax, lut, label){
   tmp.getContext("2d").putImageData(img, 0, 0);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(tmp, x, top, bw, bh);
-  ctx.strokeStyle = "#C9CDD2"; ctx.lineWidth = 1;
+  ctx.strokeStyle = AX.rule; ctx.lineWidth = 1;
   ctx.strokeRect(x + 0.5, top + 0.5, bw, bh);
 
   const ticks = niceTicks(vmin, vmax, Math.max(2, Math.round(bh / 60)));
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : (vmax - vmin);
-  ctx.fillStyle = "#5C6670";
-  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillStyle = AX.tick;
+  ctx.font = AX.font;
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
   for (const v of ticks){
     const y = top + (1 - (v - vmin) / ((vmax - vmin) || 1)) * bh;
@@ -306,7 +310,7 @@ function drawColorbar(id, vmin, vmax, lut, label){
     ctx.save();
     ctx.translate(w - 2, h / 2); ctx.rotate(-Math.PI / 2);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.font = "9px system-ui, sans-serif"; ctx.fillStyle = "#16191C";
+    ctx.font = AX.labelFont; ctx.fillStyle = AX.label;
     ctx.fillText(label, 0, 0);
     ctx.restore();
   }

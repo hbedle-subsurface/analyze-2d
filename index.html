@@ -5,47 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" media="print" onload="this.media='all'"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="assets/glossary.css">
+<link rel="stylesheet" href="css/style.css">
 <title>Analyze 2D — attributes and unsupervised classification on a 2D seismic line</title>
 <meta name="description" content="Load a 2D seismic line, condition it, compute attributes, classify them with a self-organizing map and read the result with SHAP, all in the browser. University of Oklahoma / AASPI.">
 </head>
 <body>
 
 <div class="landing">
-  <h2>A 2D seismic line, from SEG-Y to classes</h2>
   <p class="lede">Open a 2D line, check and condition it, compute seismic attributes,
   classify them with a self-organizing map, and use SHAP values to see which attributes
   the classes rest on. Everything is computed in this browser from the file itself.</p>
 
   <div class="open">
-    <div class="drop" id="drop">
-      <p><b>Open a 2D SEG-Y file</b></p>
-      <p class="hint">Post-stack, one line. Drag the file here or choose it.</p>
-      <p><input type="file" id="fileInput" accept=".sgy,.segy,.SGY,.SEGY"></p>
+    <div class="card">
+      <h2>Open a 2D SEG-Y file</h2>
+      <div class="drop" id="drop">
+        <p>Post-stack, one line. Drag the file here or choose it.</p>
+        <p><input type="file" id="fileInput" accept=".sgy,.segy,.SGY,.SEGY"></p>
+      </div>
       <p class="busy" id="busy" hidden></p>
       <p class="hint" id="loadErr" hidden></p>
     </div>
-    <div class="sample">
-      <h3>Sample line: SCAN029, the Netherlands</h3>
-      <p>Pre-stack time migrated full stack from the SCAN geothermal exploration
-      programme, run by EBN and TNO. The line runs about 48 km across the southern
-      Netherlands, from the Someren area in the west to the Californië geothermal
-      wells near Venlo in the east. 2425 traces at 20 m, 2 ms sampling, 0.15 to 3.0 s.</p>
+    <div class="card">
+      <h2>Sample line: SCAN029</h2>
+      <p>Pre-stack time migrated full stack from the SCAN geothermal
+      exploration programme of EBN and TNO. The line runs about 48 km across the southeastern
+      Netherlands, from the Someren area in the west to the Californië geothermal wells near
+      Venlo in the east. 2425 traces at 20 m, 2 ms sampling, 0.15 to 3.0 s.</p>
       <p class="hint">Data from NLOG. The copy here is an interim one, rebuilt from an
       8-bit display array; data/README.md describes it and how it is replaced.</p>
-      <p><button class="primary" id="btnSample">Open SCAN029 (14 MB)</button></p>
+      <div class="btnrow"><button class="primary" id="btnSample">Open SCAN029 (14 MB)</button></div>
     </div>
   </div>
 
   <div class="steps" id="steps"></div>
 
-  <p class="note" style="margin-top:1.6rem">Each step writes its result to storage in
-  this browser, and the next step starts from it. Steps 3 to 6 can be skipped: a skipped
-  step passes the line through unchanged. Opening a new line clears everything computed
-  from the previous one.</p>
+  <p class="lede" style="margin-top:26px">Each step writes its result to storage in this browser,
+  and the next step starts from it. Steps 3 to 6 can be skipped: a skipped step passes the line
+  through unchanged. Opening a new line clears everything computed from the previous one.</p>
 </div>
 
 <script src="js/store.js"></script>

@@ -5,14 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" media="print" onload="this.media='all'"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
-<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
 <title>8. Self-organizing map — Analyze 2D</title>
 <style>
 .somrow{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:.9rem;align-items:start}
-.key canvas{width:100%;display:block;cursor:pointer;border:1px solid var(--rule)}
+.key canvas{width:100%;display:block;cursor:pointer}
 .key p{font-size:.74rem;color:var(--slate);margin:.3rem 0}
 @media (max-width:1000px){.somrow{grid-template-columns:1fr}}
 </style>
@@ -197,7 +196,7 @@ function linkPair(id){
   const fr = $(id + "-frame");
   fr.addEventListener("mousemove", ev => {
     const r = fr.getBoundingClientRect(), u = (ev.clientX - r.left) / r.width, v = (ev.clientY - r.top) / r.height;
-    ["pA", "pB"].forEach(k => { const {ctx, w, h} = fitCanvas($(k + "-ovl")); ctx.strokeStyle = "rgba(22,25,28,0.9)";
+    ["pA", "pB"].forEach(k => { const {ctx, w, h} = fitCanvas($(k + "-ovl")); ctx.strokeStyle = "rgba(255,209,102,0.9)";
       ctx.beginPath(); ctx.moveTo(u * w, 0); ctx.lineTo(u * w, h); ctx.moveTo(0, v * h); ctx.lineTo(w, v * h); ctx.stroke(); });
   });
   fr.addEventListener("mouseleave", () => ["pA", "pB"].forEach(k => fitCanvas($(k + "-ovl"))));

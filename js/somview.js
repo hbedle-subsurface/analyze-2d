@@ -48,7 +48,7 @@ function drawClasses(id, sec, run, alpha, hidden){
   ctx.globalAlpha = alpha;
   ctx.drawImage(tmp, x0, y0, x1 - x0, y1 - y0);
   ctx.globalAlpha = 1;
-  ctx.strokeStyle = "#16191C"; ctx.lineWidth = 1; ctx.setLineDash([5, 3]);
+  ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 1; ctx.setLineDash([5, 3]);
   ctx.strokeRect(x0 + .5, y0 + .5, x1 - x0 - 1, y1 - y0 - 1);
 }
 
@@ -58,7 +58,7 @@ function drawGrid(c, run, hidden, path){
   c.width = Math.round(r0.width * dpr); c.height = Math.round(r0.width * dpr);
   const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = r0.width, pad = 8;
-  g.fillStyle = "#fff"; g.fillRect(0, 0, w, w);
+  g.fillStyle = "#fffaf0"; g.fillRect(0, 0, w, w);
   if (!run){ g.fillStyle = "#5C6670"; g.font = "12px 'IBM Plex Sans', system-ui"; g.textAlign = "center"; g.fillText("No map trained yet", w / 2, w / 2); return; }
   const cols = neuronColors(run.side), cell = (w - 2 * pad) / run.side, maxHit = Math.max(...run.hits);
   for (let k = 0; k < run.side * run.side; k++){

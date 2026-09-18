@@ -100,13 +100,12 @@ function diff(a, b){
 }
 
 function markFlow(done){
-  const a = document.querySelector('nav.flow a[aria-current="page"]');
+  const a = document.querySelector('.stages a[aria-current="page"]');
   if (!a) return;
-  a.classList.toggle("done", done);
   a.classList.toggle("skipped", !done);
   // everything after this step has been cleared
   let n = a.nextElementSibling;
-  while (n){ if (n.classList.contains("done")){ n.classList.remove("done"); n.classList.add("skipped"); } n = n.nextElementSibling; }
+  while (n){ if (n.getAttribute("href") && /[3-6]-/.test(n.getAttribute("href"))) n.classList.add("skipped"); n = n.nextElementSibling; }
 }
 
 function syncLabelsFP(){
@@ -139,7 +138,7 @@ function linkCrosshair(id){
     const u = (ev.clientX - r.left) / r.width, v = (ev.clientY - r.top) / r.height;
     ["pIn", "pKept", "pRem"].forEach(k => {
       const {ctx, w, h} = fitCanvas($(k + "-ovl"));
-      ctx.strokeStyle = "rgba(11,114,133,0.9)"; ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,209,102,0.9)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(u * w, 0); ctx.lineTo(u * w, h);
       ctx.moveTo(0, v * h); ctx.lineTo(w, v * h); ctx.stroke();
     });

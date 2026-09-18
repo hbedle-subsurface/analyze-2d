@@ -5,10 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" media="print" onload="this.media='all'"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
-<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
 <title>1. Open the line — Analyze 2D</title>
 </head>
 <body>
@@ -103,7 +102,7 @@ function redraw(){
   const cells = (CROP.i1 - CROP.i0 + 1) * (CROP.j1 - CROP.j0 + 1);
   $("note").innerHTML = "<p>The dashed box is the crop. Every later step, including the attributes " +
     "and the self-organizing map, runs on the " + (cells / 1e6).toFixed(2) + " million samples inside it. " +
-    "The pale area outside it is left out.</p>";
+    "The darkened area outside it is left out.</p>";
 }
 
 function syncFields(){

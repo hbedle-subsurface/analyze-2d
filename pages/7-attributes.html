@@ -5,10 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" media="print" onload="this.media='all'"
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
-<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
 <title>7. Attributes — Analyze 2D</title>
 </head>
 <body>
@@ -167,7 +166,7 @@ function linkGroup(id){
     ["pSeis", ...PIDS].forEach(k => {
       const cv = $(k + "-ovl"); if (!cv) return;
       const {ctx, w, h} = fitCanvas(cv);
-      ctx.strokeStyle = "rgba(11,114,133,0.9)"; ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,209,102,0.9)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(u * w, 0); ctx.lineTo(u * w, h); ctx.moveTo(0, v * h); ctx.lineTo(w, v * h); ctx.stroke();
     });
   });
