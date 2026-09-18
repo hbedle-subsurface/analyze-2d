@@ -36,18 +36,29 @@
 
     <h2>Compared with</h2>
     <label>Second map<select id="cmpSel"></select></label>
-    <label>Class opacity <input type="range" id="alpha" min="0.2" max="1" step="0.05" value="0.85"></label>
+    <div class="keybtns" role="group" aria-label="Comparison">
+      <button id="mStack" aria-pressed="true">Stacked</button><button id="mWipe" aria-pressed="false">Split view</button></div>
+    <div id="wipeRow" hidden>
+      <label>Split position <b><span id="v-wipe"></span></b></label>
+      <input type="range" id="wipe" min="0.02" max="0.98" step="0.01" value="0.5">
+      <p class="hint">The first map is drawn left of the split, the second map right of it.</p>
+    </div>
+    <div class="btnrow"><button id="btnSwap">Swap the two maps</button></div>
+    <label>Class opacity <b><span id="v-alpha"></span></b></label>
+    <input type="range" id="alpha" min="0" max="1" step="0.05" value="0.85">
   </aside>
 
   <main class="stage" id="stage">
     <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
     <div class="cmprow">
       <div class="panels" id="pA-host"></div>
-      <div class="key"><canvas id="gridA"></canvas><p>First map</p></div>
+      <div class="key"><canvas id="gridA" style="cursor:pointer"></canvas><p id="gridAcap">First map</p>
+        <div class="keybtns"><button data-all="A">Show all</button><button data-none="A">Hide all</button></div></div>
     </div>
-    <div class="cmprow" style="margin-top:14px">
+    <div class="cmprow" style="margin-top:14px" id="rowB">
       <div class="panels" id="pB-host"></div>
-      <div class="key"><canvas id="gridB"></canvas><p id="gridBcap">Second map</p></div>
+      <div class="key"><canvas id="gridB" style="cursor:pointer"></canvas><p id="gridBcap">Second map</p>
+        <div class="keybtns"><button data-all="B">Show all</button><button data-none="B">Hide all</button></div></div>
     </div>
     <div class="figrow">
       <div class="bars"><h3>Global SHAP, first map</h3><canvas id="shapA"></canvas></div>
@@ -66,7 +77,8 @@
 <script src="../js/common.js"></script>
 <script src="../js/somview.js"></script>
 <script>
-let SEC = null, RUNS = [], BASE = -1, CMP = -1, worker = null, BUSY = false;
+let SEC = null, RUNS = [], BASE = -1, CMP = -1, worker = null, BUSY = false, MODE = "stack";
+const HID = {A: new Set(), B: new Set()};
 
 (async function init(){
   await pageShell("refine");
@@ -88,6 +100,8 @@ let SEC = null, RUNS = [], BASE = -1, CMP = -1, worker = null, BUSY = false;
   makePanel($("pA-host"), "pA", "First map", {height: 250});
   makePanel($("pB-host"), "pB", "Second map", {height: 250});
   ["pA", "pB"].forEach(id => { attachReadout(id); linkPair(id); });
+  viewBar($("stage"));
+  onView(drawAll);
   fillSelects(); syncLabels(); drawAll();
   glossaryScan(document.querySelector("aside"));
 })();
@@ -122,12 +136,29 @@ function fillSelects(){
 function drawAll(){
   if (!SEC) return;
   const A = RUNS[BASE], B = RUNS[CMP] || null, al = +$("alpha").value;
-  drawSeis("pA", SEC, SEC.data); drawClasses("pA", SEC, A, al, null);
-  drawSeis("pB", SEC, SEC.data); drawClasses("pB", SEC, B, al, null);
-  $("pA-title").textContent = runLabel(A); $("pA-note").textContent = A.keys.map(attrShort).join(", ");
+  $("v-alpha").textContent = al.toFixed(2);
+  const wipe = MODE === "wipe" && B;
+  $("rowB").hidden = !!wipe; $("wipeRow").hidden = MODE !== "wipe";
+  drawSeis("pA", SEC, SEC.data);
+  if (wipe){
+    const u = +$("wipe").value;
+    $("v-wipe").textContent = (100 * u).toFixed(0) + "% across";
+    drawClasses("pA", SEC, A, al, HID.A, {clip: [0, u]});
+    drawClasses("pA", SEC, B, al, HID.B, {clip: [u, 1], keep: true});
+    const cv = $("pA-cls"), g = cv.getContext("2d"), r = cv.getBoundingClientRect();
+    g.strokeStyle = "#ffffff"; g.lineWidth = 2; g.setLineDash([]); g.beginPath(); g.moveTo(u * r.width, 0); g.lineTo(u * r.width, r.height); g.stroke();
+    $("pA-title").textContent = runLabel(A) + " | " + runLabel(B);
+    $("pA-note").textContent = "first map left of the split, second map right of it";
+  } else {
+    drawClasses("pA", SEC, A, al, HID.A);
+    drawSeis("pB", SEC, SEC.data); drawClasses("pB", SEC, B, al, HID.B);
+    $("pA-title").textContent = runLabel(A); $("pA-note").textContent = A.keys.map(attrShort).join(", ");
+  }
   $("pB-title").textContent = B ? runLabel(B) : "No second map yet";
   $("pB-note").textContent = B ? B.keys.map(attrShort).join(", ") : "";
-  drawGrid($("gridA"), A, null); drawGrid($("gridB"), B, null);
+  drawGrid($("gridA"), A, HID.A); drawGrid($("gridB"), B, HID.B);
+  $("gridAcap").textContent = "First map: visible classes cover " + (100 * shownShare(A, HID.A)).toFixed(0) + "% of the window.";
+  $("gridBcap").textContent = B ? "Second map: visible classes cover " + (100 * shownShare(B, HID.B)).toFixed(0) + "% of the window." : "Second map";
   shapBars($("shapA"), A); shapBars($("shapB"), B);
   $("where").innerHTML = "Both maps drawn over <b>" + STAGE_NAMES[SEC.stage] + "</b>";
   note(A, B);
@@ -220,7 +251,28 @@ $("baseSel").addEventListener("change", async () => {
   setPicks(RUNS[BASE].keys); $("somSide2").value = RUNS[BASE].side; syncLabels();
   pickCompare(); fillSelects(); drawAll();
 });
-$("cmpSel").addEventListener("change", () => { CMP = +$("cmpSel").value; drawAll(); });
+$("cmpSel").addEventListener("change", () => { CMP = +$("cmpSel").value; HID.B = new Set(); drawAll(); });
+const setMode = m => { MODE = m; $("mStack").setAttribute("aria-pressed", String(m === "stack")); $("mWipe").setAttribute("aria-pressed", String(m === "wipe")); drawAll(); };
+$("mStack").addEventListener("click", () => setMode("stack"));
+$("mWipe").addEventListener("click", () => setMode("wipe"));
+$("wipe").addEventListener("input", drawAll);
+$("btnSwap").addEventListener("click", () => {
+  if (CMP < 0) return;
+  [BASE, CMP] = [CMP, BASE]; [HID.A, HID.B] = [HID.B, HID.A];
+  $("baseSel").value = BASE; fillSelects(); $("cmpSel").value = CMP; drawAll();
+});
+[["gridA", "A"], ["gridB", "B"]].forEach(([id, w]) => $(id).addEventListener("click", ev => {
+  const r = w === "A" ? RUNS[BASE] : RUNS[CMP]; if (!r) return;
+  const k = gridHit($(id), r, ev); if (k < 0) return;
+  toggleNeuron(r, HID[w], k, ev.shiftKey); drawAll();
+}));
+document.addEventListener("click", e => {
+  const a = e.target.dataset && (e.target.dataset.all || e.target.dataset.none);
+  if (!a) return;
+  const r = a === "A" ? RUNS[BASE] : RUNS[CMP]; if (!r) return;
+  HID[a] = e.target.dataset.all ? new Set() : new Set([...Array(r.side * r.side).keys()]);
+  drawAll();
+});
 window.addEventListener("resize", debounce(drawAll, 250));
 </script>
 <script src="../assets/count.js"></script>

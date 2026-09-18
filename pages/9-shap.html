@@ -26,6 +26,13 @@
     <div class="runs" id="runs"></div>
     <p class="hint" id="rebuild"></p>
     <div class="progress" id="prog" hidden><span></span></div>
+    <h2>Classes on the section</h2>
+    <label>Class opacity <b><span id="v-alpha"></span></b></label>
+    <input type="range" id="alpha" min="0" max="1" step="0.05" value="0.8">
+    <canvas id="key" style="width:100%;display:block;cursor:pointer;margin-top:8px"></canvas>
+    <div class="keybtns"><button id="nAll">Show all</button><button id="nNone">Hide all</button></div>
+    <p class="hint" id="shownText">Click a neuron to hide or show its class on the section; shift-click shows it alone.</p>
+
     <h2>Second map</h2>
     <p class="hint">The attribute set, map size and window of the chosen run are carried to
     step 10, where attributes can be added or taken out and a second map trained on the same window.</p>
@@ -59,7 +66,7 @@
 <script src="../js/common.js"></script>
 <script src="../js/somview.js"></script>
 <script>
-let SEC = null, RUNS = [], CUR = -1, worker = null, READY = false, EXPL = null, SAMPLE = null;
+let SEC = null, RUNS = [], CUR = -1, worker = null, READY = false, EXPL = null, SAMPLE = null, HIDDEN = new Set();
 
 (async function init(){
   await pageShell("shap");
@@ -71,8 +78,10 @@ let SEC = null, RUNS = [], CUR = -1, worker = null, READY = false, EXPL = null, 
   displayControls($("side"), drawSection);
   makePanel($("panels"), "pCls", "Classes", {height: 320});
   attachReadout("pCls");
-  $("pCls-frame").classList.add("crosshair");
-  $("pCls-frame").addEventListener("click", ev => { const s = frameToSample("pCls", ev); if (s) pick(s); });
+  onPanelClick("pCls", s => pick(s));
+  viewBar($("stage"));
+  $("vbText").textContent = "Drag a box to zoom in. Click a sample to explain it.";
+  onView(drawSection);
   select(CUR);
   glossaryScan(document.querySelector("aside"));
 })();
@@ -85,7 +94,7 @@ function runsList(){
 }
 
 function select(i){
-  CUR = i; EXPL = null; SAMPLE = null; READY = false;
+  CUR = i; EXPL = null; SAMPLE = null; READY = false; HIDDEN = new Set();
   runsList();
   const r = run();
   $("where").innerHTML = runLabel(r) + " on <b>" + STAGE_NAMES[r.stage] + "</b>";
@@ -110,10 +119,14 @@ function drawSection(){
   if (!SEC) return;
   const r = run();
   drawSeis("pCls", SEC, SEC.data);
-  drawClasses("pCls", SEC, r, 0.8, null);
+  drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN);
+  $("v-alpha").textContent = (+$("alpha").value).toFixed(2);
+  drawGrid($("key"), r, HIDDEN);
+  $("shownText").textContent = "Visible classes cover " + (100 * shownShare(r, HIDDEN)).toFixed(0) +
+    "% of the window. Click a neuron to hide or show its class; shift-click shows it alone.";
   if (SAMPLE){
     const {ctx, w, h} = fitCanvas($("pCls-ovl"));
-    const x = SAMPLE.i / (SEC.nx - 1) * w, y = SAMPLE.j / (SEC.ns - 1) * h;
+    const f = fracOf("pCls", SAMPLE.i, SAMPLE.j), x = f.x * w, y = f.y * h;
     ctx.fillStyle = "#ffd166"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
@@ -168,6 +181,13 @@ function pick(s){
   worker.postMessage({type: "explain", index: gi * r.gnt + gj});
 }
 
+$("alpha").addEventListener("input", drawSection);
+$("key").addEventListener("click", ev => {
+  const r = run(), k = gridHit($("key"), r, ev); if (k < 0) return;
+  toggleNeuron(r, HIDDEN, k, ev.shiftKey); drawSection();
+});
+$("nAll").addEventListener("click", () => { HIDDEN = new Set(); drawSection(); });
+$("nNone").addEventListener("click", () => { const r = run(); HIDDEN = new Set([...Array(r.side * r.side).keys()]); drawSection(); });
 $("runs").addEventListener("click", e => { const b = e.target.closest("[data-run]"); if (b) select(+b.dataset.run); });
 $("btnRevise").addEventListener("click", async () => { await kvSet("refineBase", run().id); await kvSet("refinePicks", run().keys); location.href = "10-refine.html"; });
 window.addEventListener("resize", debounce(() => { drawGlobal(); drawSection(); drawLocal(); }, 250));

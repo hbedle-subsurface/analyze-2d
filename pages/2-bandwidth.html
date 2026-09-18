@@ -64,15 +64,15 @@ const tS = k => SP.tc[k] / 1000 + (LINE.delayMs || 0) / 1000;
   displayControls($("side"), drawSection);
   makePanel($("panels"), "sec", "The cropped line", {height: 300});
   attachReadout("sec");
-  $("sec-frame").classList.add("crosshair");
-  $("sec-frame").addEventListener("click", ev => {
-    const s = frameToSample("sec", ev);
-    if (!s || !SP) return;
+  onPanelClick("sec", s => {
+    if (!SP) return;
     const t = secAt(SEC.j0 + s.j);
     let best = 0;
     SP.tc.forEach((c, k) => { if (Math.abs(tS(k) - t) < Math.abs(tS(best) - t)) best = k; });
     $("pos").value = best; drawAll();
   });
+  viewBar($("stage"));
+  onView(drawSection);
   $("where").innerHTML = "Measured on <b>" + STAGE_NAMES.crop + "</b>";
   measure();
   $("next").innerHTML = nextLink("bandwidth");
@@ -172,7 +172,7 @@ function drawSection(){
   const k = +$("pos").value, half = SP.winMs / 2000;
   const toJ = t => (t - secAt(SEC.j0)) / (SEC.dt * 1e-6);
   const cv = $("sec-ovl"), {ctx, w, h} = fitCanvas(cv);
-  const y0 = toJ(tS(k) - half) / (SEC.ns - 1) * h, y1 = toJ(tS(k) + half) / (SEC.ns - 1) * h;
+  const y0 = fracOf("sec", 0, toJ(tS(k) - half)).y * h, y1 = fracOf("sec", 0, toJ(tS(k) + half)).y * h;
   ctx.fillStyle = "rgba(132,22,23,0.18)"; ctx.fillRect(0, y0, w, y1 - y0);
   ctx.strokeStyle = "#841617"; ctx.lineWidth = 1.5;
   ctx.strokeRect(0.5, y0 + 0.5, w - 1, y1 - y0);

@@ -27,9 +27,11 @@ function runLabel(r){ return "Run " + r.n + ": " + r.keys.length + " attributes,
 
 /* The classes drawn over the section in the panel's class layer. hidden: a Set
    of neurons not drawn, so the seismic shows through where they are. */
-function drawClasses(id, sec, run, alpha, hidden){
+function drawClasses(id, sec, run, alpha, hidden, opt){
+  opt = opt || {};
   const cv = $(id + "-cls");
-  const {ctx, w, h} = fitCanvas(cv);
+  const {ctx, w, h} = opt.keep ? {ctx: cv.getContext("2d"), w: cv.getBoundingClientRect().width, h: cv.getBoundingClientRect().height} : fitCanvas(cv);
+  cv.style.opacity = 1;
   if (!run) return;
   const cols = neuronColors(run.side);
   const tmp = document.createElement("canvas");
@@ -42,14 +44,32 @@ function drawClasses(id, sec, run, alpha, hidden){
   }
   g.putImageData(img, 0, 0);
   const W = run.win;
-  const x0 = W.i0 / Math.max(1, sec.nx - 1) * w, x1 = (W.i1 + 1) / Math.max(1, sec.nx - 1) * w;
-  const y0 = W.j0 / Math.max(1, sec.ns - 1) * h, y1 = (W.j0 + run.gnt * run.tstep) / Math.max(1, sec.ns - 1) * h;
+  const p0 = fracOf(id, W.i0 - 0.5, W.j0 - 0.5 * run.tstep), p1 = fracOf(id, W.i0 + run.gnx - 0.5, W.j0 + (run.gnt - 0.5) * run.tstep);
+  const x0 = p0.x * w, x1 = p1.x * w, y0 = p0.y * h, y1 = p1.y * h;
+  ctx.save();
+  if (opt.clip){ ctx.beginPath(); ctx.rect(opt.clip[0] * w, 0, (opt.clip[1] - opt.clip[0]) * w, h); ctx.clip(); }
   ctx.imageSmoothingEnabled = false;
   ctx.globalAlpha = alpha;
   ctx.drawImage(tmp, x0, y0, x1 - x0, y1 - y0);
   ctx.globalAlpha = 1;
   ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 1; ctx.setLineDash([5, 3]);
   ctx.strokeRect(x0 + .5, y0 + .5, x1 - x0 - 1, y1 - y0 - 1);
+  ctx.restore();
+}
+
+/* Class share of the visible neurons, for the key captions. */
+function shownShare(run, hidden){
+  return run.hits.reduce((a, h, k) => a + (hidden && hidden.has(k) ? 0 : h), 0);
+}
+
+/* Click hides or shows one neuron; shift-click shows that neuron alone, and a
+   second shift-click brings the rest back. */
+function toggleNeuron(run, hidden, k, solo){
+  const N = run.side * run.side;
+  if (solo){
+    const isSolo = hidden.size === N - 1 && !hidden.has(k);
+    hidden.clear(); if (!isSolo) for (let q = 0; q < N; q++) if (q !== k) hidden.add(q);
+  } else if (hidden.has(k)) hidden.delete(k); else hidden.add(k);
 }
 
 /* The trained map. With path, the SHAP path of one sample is drawn on it. */

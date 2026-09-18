@@ -38,9 +38,15 @@
     that oscillate with the wavelet are used as computed.</p>
 
     <h2>Analysis window</h2>
-    <p class="hint" id="winText"></p>
+    <div class="row2">
+      <label>From, km<input type="number" id="wx0" step="0.1"></label>
+      <label>To, km<input type="number" id="wx1" step="0.1"></label>
+      <label>Top, s<input type="number" id="wt0" step="0.05"></label>
+      <label>Base, s<input type="number" id="wt1" step="0.05"></label>
+    </div>
     <div class="btnrow"><button id="btnWhole">Whole section</button></div>
-    <p class="hint">Drag a box on the section to train and classify inside it only.</p>
+    <p class="hint">With "Drag to set the window" chosen above the section, a box dragged on it sets the window.
+    Attributes are standardized within the window, and only samples inside it are trained on and classified.</p>
 
     <div class="btnrow"><button class="primary" id="btnTrain">Train the map</button></div>
     <div class="progress" id="prog" hidden><span></span></div>
@@ -58,7 +64,9 @@
         <canvas id="grid"></canvas>
         <p>Each square is one neuron; the dot size gives how many samples it took. Click a neuron to hide
         its class, shift-click to show it alone.</p>
-        <label class="hint">Class opacity <input type="range" id="alpha" min="0.2" max="1" step="0.05" value="0.85"></label>
+        <div class="keybtns"><button id="nAll">Show all</button><button id="nNone">Hide all</button></div>
+        <p id="shownText"></p>
+        <label class="hint">Class opacity <input type="range" id="alpha" min="0" max="1" step="0.05" value="0.85"></label>
       </div>
     </div>
     <div class="note" id="note"></div>
@@ -100,7 +108,9 @@ let SEC = null, RUNS = [], CUR = -1, HIDDEN = new Set(), WIN = null, worker = nu
   displayControls($("side"), drawAll);
   makePanel($("panels"), "pCls", "Classes over the section", {height: 380});
   attachReadout("pCls");
-  enableBox("pCls", (box, click) => { if (box){ WIN = box; syncLabels(); drawAll(); } });
+  enableBox("pCls", box => { WIN = box; syncLabels(); drawAll(); });
+  viewBar($("stage"), "set the window");
+  onView(drawAll);
   CUR = RUNS.length - 1;
   runsList();
   drawAll();
@@ -115,8 +125,10 @@ function syncLabels(){
   $("v-side").textContent = s + " × " + s + " = " + s * s;
   $("v-ftr").textContent = $("ftr").value + " (" + fmt(($("ftr").value - 1) * ((LINE && LINE.dist ? LINE.dist[LINE.nx-1] / (LINE.nx - 1) : (LINE && LINE.dx) || 0)), 0) + " m)";
   $("v-fms").textContent = $("fms").value;
-  if (SEC && WIN) $("winText").textContent = fmt(kmAt(SEC.i0 + WIN.i0), 1) + " to " + fmt(kmAt(SEC.i0 + WIN.i1), 1) + " km, " +
-    fmt(secAt(SEC.j0 + WIN.j0), 2) + " to " + fmt(secAt(SEC.j0 + WIN.j1), 2) + " s";
+  if (SEC && WIN){
+    $("wx0").value = fmt(kmAt(SEC.i0 + WIN.i0), 1); $("wx1").value = fmt(kmAt(SEC.i0 + WIN.i1), 1);
+    $("wt0").value = fmt(secAt(SEC.j0 + WIN.j0), 2); $("wt1").value = fmt(secAt(SEC.j0 + WIN.j1), 2);
+  }
 }
 
 function run(){ return RUNS[CUR] || null; }
@@ -137,6 +149,7 @@ function drawAll(){
   };
   $("pCls-title").textContent = r ? runLabel(r) : "Seismic amplitude, no map trained yet";
   drawGrid($("grid"), r, HIDDEN);
+  $("shownText").textContent = r ? "Visible classes cover " + (100 * shownShare(r, HIDDEN)).toFixed(0) + "% of the window." : "";
   noteText();
 }
 
@@ -223,6 +236,17 @@ $("btnNull").addEventListener("click", () => {
   $("btnNull").disabled = true; $("prog").hidden = false;
   worker.postMessage({type: "null"});
 });
+/* window from the number fields: the nearest trace and sample to each value */
+function winFromFields(){
+  const toI = km => { let b = 0, bd = Infinity; for (let i = 0; i < SEC.nx; i++){ const d = Math.abs(kmAt(SEC.i0 + i) - km); if (d < bd){ bd = d; b = i; } } return b; };
+  const toJ = t => Math.max(0, Math.min(SEC.ns - 1, Math.round((t - secAt(SEC.j0)) / (SEC.dt * 1e-6))));
+  const i0 = toI(+$("wx0").value), i1 = toI(+$("wx1").value), j0 = toJ(+$("wt0").value), j1 = toJ(+$("wt1").value);
+  if (i1 - i0 < 8 || j1 - j0 < 16) return;
+  WIN = {i0, i1, j0, j1}; syncLabels(); drawAll();
+}
+["wx0", "wx1", "wt0", "wt1"].forEach(k => $(k).addEventListener("change", winFromFields));
+$("nAll").addEventListener("click", () => { HIDDEN = new Set(); drawAll(); });
+$("nNone").addEventListener("click", () => { const r = run(); if (!r) return; HIDDEN = new Set([...Array(r.side * r.side).keys()]); drawAll(); });
 $("btnWhole").addEventListener("click", () => { WIN = {i0: 0, i1: SEC.nx - 1, j0: 0, j1: SEC.ns - 1}; syncLabels(); drawAll(); });
 $("btnFromAttr").addEventListener("click", async () => setPicks(((await kvGet("attrSel")) || []).filter(k => SOM_KEYS.includes(k))));
 $("btnNone").addEventListener("click", () => setPicks([]));
@@ -240,7 +264,7 @@ $("grid").addEventListener("click", ev => {
     const solo = HIDDEN.size === r.side * r.side - 1 && !HIDDEN.has(k);
     HIDDEN = new Set(); if (!solo) for (let q = 0; q < r.side * r.side; q++) if (q !== k) HIDDEN.add(q);
   } else if (HIDDEN.has(k)) HIDDEN.delete(k); else HIDDEN.add(k);
-  drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN); drawGrid($("grid"), r, HIDDEN); noteText();
+  drawAll();
 });
 window.addEventListener("resize", debounce(drawAll, 250));
 </script>

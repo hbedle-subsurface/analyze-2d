@@ -20,8 +20,8 @@
     <div id="spacingBox"></div>
 
     <h2>Crop</h2>
-    <div class="guide"><p>Drag a box on the section to choose the part of the line
-    that every later step works on. The fields below give the same crop in numbers.</p></div>
+    <div class="guide"><p>With "Drag to crop" chosen above the section, a box dragged on it
+    sets the part of the line that every later step works on. The fields below give the same crop in numbers.</p></div>
     <div class="row2">
       <label>First trace<input type="number" id="ci0" min="0" step="1"></label>
       <label>Last trace<input type="number" id="ci1" min="0" step="1"></label>
@@ -83,7 +83,9 @@ let RAW = null, CROP = null;
   displayControls($("side"), redraw);
   makePanel($("panels"), "sec", "The line as read", {height: 420});
   attachReadout("sec");
-  enableBox("sec", box => { if (box) setCrop(box); });
+  enableBox("sec", box => setCrop(box));
+  viewBar($("stage"), "crop");
+  onView(redraw);
 
   writeHeaders();
   syncFields();

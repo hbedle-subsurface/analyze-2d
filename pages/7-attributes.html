@@ -36,6 +36,26 @@
     <label>Teager-Kaiser derivative length <b><span id="v-dl"></span> points</b></label>
     <input type="range" id="attrDl" min="5" max="9" step="2" value="7">
     <p class="hint" id="winInfo"></p>
+
+    <h2>Co-rendering<button class="help" data-help="compare">Learn more</button></h2>
+    <label>Attribute opacity over the seismic <b><span id="v-alpha"></span></b></label>
+    <input type="range" id="alpha" min="0.2" max="1" step="0.05" value="1">
+    <p class="hint">At 1 each panel shows the attribute alone. Below 1 the attribute is drawn over the
+    seismic amplitude, so the reflections show through it. The color map of each panel is chosen on the panel.</p>
+
+    <h2>Relief shading<button class="help" data-help="relief">Learn more</button></h2>
+    <label>Light from, azimuth <b><span id="v-az"></span>°</b></label>
+    <input type="range" id="relAz" min="0" max="355" step="5" value="315">
+    <label>Light elevation <b><span id="v-alt"></span>°</b></label>
+    <input type="range" id="relAlt" min="5" max="85" step="1" value="30">
+    <label>Relief <b>×<span id="v-relZ"></span></b></label>
+    <input type="range" id="relZ" min="0.05" max="8" step="0.05" value="1">
+    <label>Smoothing <b><span id="v-relSm"></span> periods</b></label>
+    <input type="range" id="relSm" min="0" max="2" step="0.05" value="0.4">
+    <label>Surface<select id="relSurf"><option value="env">Envelope</option><option value="amp">Amplitude</option></select></label>
+    <div class="btnrow"><button id="btnRelAuto">Relief from the data</button></div>
+    <p class="hint" id="relInfo">Relief is solved for 2% of the image in full shadow until the slider is moved.
+    These settings apply to relief shading and relief over amplitude.</p>
   </aside>
 
   <main class="stage" id="stage">
@@ -69,7 +89,16 @@ const DEFAULT_SET = ["avt", "rms", "dip", "coherence", "avgfreq", "avgband"];
 const STRIPE_LIMIT = 0.80;
 let SEC = null, SPEC = null, TENSOR = null, TSIG = -1, SHOWN = [], PIDS = [];
 
-function reliefScale(src, p, nx, ns){ return reliefScaleFor(src, nx, ns, p.relAz, p.relAlt, 2.0); }
+let RELZ_TOUCHED = false, CMAPS_SET = {};
+const CMAP_CHOICES = [["magma","Magma"],["viridis","Viridis"],["cividis","Cividis"],["batlow","Batlow"],
+  ["gray","Gray"],["graygb","Gray, reversed"],["coolwarm","Cool to warm"],["vik","Vik"],["bwr","Blue, white, red"],["seis","Blue, black, red"]];
+/* Relief is solved for until the slider is moved, then taken from it. */
+function reliefScale(src, p, nx, ns){
+  if (RELZ_TOUCHED) return p.relZ;
+  const z = reliefScaleFor(src, nx, ns, p.relAz, p.relAlt, 2.0);
+  $("relZ").value = z; $("v-relZ").textContent = z.toFixed(2);
+  return z;
+}
 
 (async function init(){
   await pageShell("attributes");
@@ -103,6 +132,8 @@ function reliefScale(src, p, nx, ns){ return reliefScaleFor(src, nx, ns, p.relAz
   displayControls($("side"), () => { drawSeisPanel(); });
   makePanel($("panels"), "pSeis", "Seismic amplitude", {height: 220});
   attachReadout("pSeis"); linkGroup("pSeis");
+  viewBar($("stage"));
+  onView(redrawAll);
   drawSeisPanel();
   $("next").innerHTML = nextLink("attributes");
   glossaryScan(document.querySelector("aside"));
@@ -112,12 +143,16 @@ function reliefScale(src, p, nx, ns){ return reliefScaleFor(src, nx, ns, p.relAz
 function params(){
   return {attrWin: +$("attrWin").value, attrWinI: +$("attrWinI").value, attrFc: +$("attrFc").value,
           tSig: +$("tSig").value, attrDl: +$("attrDl").value,
-          relAz: 315, relAlt: 30, relSurf: "env", relSm: 0.4, relZ: 1, cmap: DISP.cmap};
+          relAz: +$("relAz").value, relAlt: +$("relAlt").value, relSurf: $("relSurf").value,
+          relSm: +$("relSm").value, relZ: +$("relZ").value, cmap: DISP.cmap};
 }
 function syncLabels(){
   $("v-aw").textContent = $("attrWin").value; $("v-awi").textContent = $("attrWinI").value;
   $("v-fc").textContent = $("attrFc").value; $("v-ts").textContent = (+$("tSig").value).toFixed(1);
   $("v-dl").textContent = $("attrDl").value;
+  $("v-alpha").textContent = (+$("alpha").value).toFixed(2);
+  $("v-az").textContent = $("relAz").value; $("v-alt").textContent = $("relAlt").value;
+  $("v-relZ").textContent = (+$("relZ").value).toFixed(2); $("v-relSm").textContent = (+$("relSm").value).toFixed(2);
 }
 function selected(){ return [...document.querySelectorAll("#checks input:checked")].map(x => x.value); }
 function setSelection(keys){ document.querySelectorAll("#checks input").forEach(x => { x.checked = keys.includes(x.value); }); }
@@ -144,12 +179,16 @@ async function show(){
     try { m = computeOne(k, p, C); } catch (e){ console.error(e); continue; }
     if (!m) continue;
     const id = "pa-" + k;
-    makePanel($("panels"), id, m.title, {height: 200});
+    makePanel($("panels"), id, m.title, {height: 200, tools: !m.rgb});
     PIDS.push(id);
-    if (m.rgb) drawRGBPanel(id, SEC, m.rgb, m.scales, m.unit);
-    else drawAttrPanel(id, SEC, m.a, m.vmin, m.vmax, m.cmapDefault, m.cbLabel, m.unit);
-    attachReadout(id); linkGroup(id);
+    if (!m.rgb){
+      $(id + "-tools").innerHTML = 'Color map <select data-cmap="' + k + '">' +
+        CMAP_CHOICES.map(([v, n]) => '<option value="' + v + '">' + n + "</option>").join("") + "</select>";
+      $(id + "-tools").querySelector("select").value = CMAPS_SET[k] || m.cmapDefault;
+    }
     SHOWN.push(m);
+    drawOne(m, true);
+    attachReadout(id); linkGroup(id);
   }
   setBusy("");
   $("btnShow").disabled = false;
@@ -232,10 +271,39 @@ function striping(){
 $("btnShow").addEventListener("click", show);
 $("btnDefault").addEventListener("click", () => setSelection(DEFAULT_SET));
 $("btnNone").addEventListener("click", () => setSelection([]));
-window.addEventListener("resize", debounce(() => {
-  drawSeisPanel();
-  SHOWN.forEach(m => { const id = "pa-" + m.key; if (m.rgb) drawRGBPanel(id, SEC, m.rgb, m.scales); else drawAttrPanel(id, SEC, m.a, m.vmin, m.vmax, m.cmapDefault, m.cbLabel); });
-}, 250));
+function drawOne(m, withNote){
+  const id = "pa-" + m.key, al = +$("alpha").value;
+  if (m.rgb) drawRGBPanel(id, SEC, m.rgb, m.scales, withNote ? m.unit : undefined, al, SEC.data);
+  else drawAttrPanel(id, SEC, m.a, m.vmin, m.vmax, CMAPS_SET[m.key] || m.cmapDefault, m.cbLabel, withNote ? m.unit : undefined, al, SEC.data);
+}
+function redrawAll(){ drawSeisPanel(); SHOWN.forEach(m => drawOne(m, false)); }
+
+/* Only the two relief attributes depend on the lighting, so only they are
+   computed again when it changes. */
+const relight = debounce(async () => {
+  const keys = SHOWN.filter(m => m.key === "relief" || m.key === "reliefrgb").map(m => m.key);
+  if (!keys.length) return;
+  setBusy("Shading…"); await nextFrame();
+  const C = attrCache(SEC.data, SEC.nx, SEC.ns, SEC.dt, TENSOR);
+  const p = params();
+  for (const k of keys){
+    const m = computeOne(k, p, C);
+    const q = SHOWN.findIndex(x => x.key === k);
+    SHOWN[q] = m; drawOne(m, true);
+  }
+  setBusy("");
+}, 300);
+["relAz", "relAlt", "relSm", "relSurf"].forEach(k => $(k).addEventListener("input", () => { syncLabels(); relight(); }));
+$("relZ").addEventListener("input", () => { RELZ_TOUCHED = true; syncLabels(); relight(); });
+$("btnRelAuto").addEventListener("click", () => { RELZ_TOUCHED = false; relight(); });
+$("alpha").addEventListener("input", () => { syncLabels(); SHOWN.forEach(m => drawOne(m, false)); });
+document.addEventListener("change", e => {
+  const k = e.target.dataset && e.target.dataset.cmap;
+  if (!k) return;
+  CMAPS_SET[k] = e.target.value;
+  const m = SHOWN.find(x => x.key === k); if (m) drawOne(m, false);
+});
+window.addEventListener("resize", debounce(redrawAll, 250));
 </script>
 <script src="../assets/count.js"></script>
 </body>

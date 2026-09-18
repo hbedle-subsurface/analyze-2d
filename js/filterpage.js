@@ -33,6 +33,8 @@ async function filterPage(cfg){
   makePanel(host, "pKept", "Kept", {height: 250});
   makePanel(host, "pRem", "Removed", {height: 250});
   ["pIn", "pKept", "pRem"].forEach(id => { attachReadout(id); linkCrosshair(id); });
+  viewBar($("stage"));
+  onView(drawPanels);
 
   FP.clip = seisClip(input.data);
   if (stored){

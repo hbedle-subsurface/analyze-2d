@@ -96,8 +96,7 @@ async function pageShell(stepId){
   }).join("");
   top.innerHTML =
     '<div class="case"><h1><a href="' + PREFIX + 'index.html">Analyze 2D</a></h1>' +
-    "<p>" + (LINE ? "<b>" + LINE.name + "</b>: " + LINE.nx + " traces, " + (LINE.dt / 1000) + " ms sampling"
-                  : "Attributes, self-organizing maps and SHAP on a 2D seismic line") + "</p></div>" +
+    "<p>Attributes, self-organizing maps and SHAP on a 2D seismic line</p></div>" +
     '<nav class="stages" aria-label="Steps"><button class="tag methods" data-help="start">Reference</button>' + tags + "</nav>";
   document.body.prepend(top);
 
@@ -170,16 +169,86 @@ function openHelp(key){
 }
 
 /* ---------- panels ---------- */
+/* Zoom. VIEW is the part of the section on screen, in sample indices of the
+   section the page works on, or null for all of it. Every panel on a page
+   shares it, so a feature stays lined up from one panel to the next. The color
+   scale is always taken from the whole section, so zooming in does not change
+   what a color means. */
+let VIEW = null, REDRAW = () => {}, DRAGMODE = "zoom";
+const PANEL_ACT = {};                 // per panel: {select, click}
+function onView(fn){ REDRAW = fn; }
+function viewOf(sec){
+  if (!VIEW) return {i0: 0, i1: sec.nx - 1, j0: 0, j1: sec.ns - 1};
+  const i0 = Math.max(0, Math.min(sec.nx - 2, VIEW.i0)), j0 = Math.max(0, Math.min(sec.ns - 2, VIEW.j0));
+  return {i0, i1: Math.max(i0 + 1, Math.min(sec.nx - 1, VIEW.i1)), j0, j1: Math.max(j0 + 1, Math.min(sec.ns - 1, VIEW.j1))};
+}
+function sliceArr(arr, sec, v){
+  const nx = v.i1 - v.i0 + 1, ns = v.j1 - v.j0 + 1;
+  if (nx === sec.nx && ns === sec.ns) return arr;
+  const o = new Float32Array(nx * ns);
+  for (let i = 0; i < nx; i++) o.set(arr.subarray((v.i0 + i) * sec.ns + v.j0, (v.i0 + i) * sec.ns + v.j0 + ns), i * ns);
+  return o;
+}
+function sliceSec(sec, v){
+  return Object.assign({}, sec, {nx: v.i1 - v.i0 + 1, ns: v.j1 - v.j0 + 1, i0: sec.i0 + v.i0, j0: sec.j0 + v.j0});
+}
+/* Position of section sample (i, j) as a fraction of the panel frame. */
+function fracOf(id, i, j){
+  const P = PANEL_DATA[id];
+  const v = P ? P.v : {i0: 0, i1: 1, j0: 0, j1: 1};
+  return {x: (i - v.i0) / Math.max(1, v.i1 - v.i0), y: (j - v.j0) / Math.max(1, v.j1 - v.j0)};
+}
+
+/* The bar above the panels: whole section, zoom out, and on pages where a drag
+   also selects something, which of the two a drag does. */
+function viewBar(host, selectLabel){
+  const bar = document.createElement("div");
+  bar.className = "viewbar";
+  bar.innerHTML =
+    '<div class="seg" role="group" aria-label="Zoom">' +
+      '<button id="vbWhole" aria-pressed="true">Whole section</button>' +
+      '<button id="vbOut">Zoom out</button></div>' +
+    (selectLabel ? '<div class="seg" role="group" aria-label="Drag on the section">' +
+      '<button id="vbSel" aria-pressed="true">Drag to ' + selectLabel + '</button>' +
+      '<button id="vbZoom" aria-pressed="false">Drag to zoom</button></div>' : "") +
+    '<span class="readout" id="vbText">' + (selectLabel ? "" : "Drag a box on any panel to zoom in.") + "</span>";
+  host.prepend(bar);
+  DRAGMODE = selectLabel ? "select" : "zoom";
+  const sync = () => {
+    $("vbWhole").setAttribute("aria-pressed", String(!VIEW));
+    if (selectLabel){
+      $("vbSel").setAttribute("aria-pressed", String(DRAGMODE === "select"));
+      $("vbZoom").setAttribute("aria-pressed", String(DRAGMODE === "zoom"));
+    }
+  };
+  $("vbWhole").addEventListener("click", () => { VIEW = null; sync(); REDRAW(); });
+  $("vbOut").addEventListener("click", () => {
+    if (!VIEW) return;
+    const w = VIEW.i1 - VIEW.i0, h = VIEW.j1 - VIEW.j0, ci = (VIEW.i0 + VIEW.i1) / 2, cj = (VIEW.j0 + VIEW.j1) / 2;
+    VIEW = {i0: Math.round(ci - w), i1: Math.round(ci + w), j0: Math.round(cj - h), j1: Math.round(cj + h)};
+    const any = Object.values(PANEL_DATA)[0];
+    if (any && VIEW.i0 <= 0 && VIEW.j0 <= 0 && VIEW.i1 >= any.sec.nx - 1 && VIEW.j1 >= any.sec.ns - 1) VIEW = null;
+    sync(); REDRAW();
+  });
+  if (selectLabel){
+    $("vbSel").addEventListener("click", () => { DRAGMODE = "select"; sync(); });
+    $("vbZoom").addEventListener("click", () => { DRAGMODE = "zoom"; sync(); });
+  }
+  VIEWSYNC = sync;
+}
+let VIEWSYNC = () => {};
+
 function makePanel(host, id, title, opts){
   opts = opts || {};
   const el = document.createElement("div");
   el.className = "panel";
   el.id = id;
   el.innerHTML =
-    '<div class="cap"><h3 id="' + id + '-title">' + title + '</h3><span class="pnote" id="' + id + '-note"></span></div>' +
+    '<div class="cap"><h3 id="' + id + '-title">' + title + '</h3><span class="pnote" id="' + id + '-note"></span>' +
+      (opts.tools ? '<span class="ptools" id="' + id + '-tools"></span>' : "") + "</div>" +
     '<div class="plot" style="--ph:' + (opts.height || 300) + 'px">' +
       '<canvas class="yax" id="' + id + '-y"></canvas>' +
-      '<div class="frame" id="' + id + '-frame">' +
+      '<div class="frame crosshair" id="' + id + '-frame">' +
         '<canvas class="img" id="' + id + '-img"></canvas>' +
         '<canvas class="cls" id="' + id + '-cls"></canvas>' +
         '<canvas class="ovl" id="' + id + '-ovl"></canvas>' +
@@ -189,6 +258,8 @@ function makePanel(host, id, title, opts){
       '<canvas class="xax" id="' + id + '-x"></canvas>' +
     "</div>";
   host.append(el);
+  PANEL_ACT[id] = PANEL_ACT[id] || {};
+  wireDrag(id);
   return el;
 }
 
@@ -198,8 +269,8 @@ function frameRows(id, ns){
   return Math.max(50, Math.min(ns, h || ns));
 }
 
-function drawAxes(id, sec){
-  const e = extentOf(sec);
+function drawAxes(id, sub){
+  const e = extentOf(sub);
   drawYAxis(id + "-y", e.t0, e.t1, "two-way time (s)", 1, 0);
   drawXAxis(id + "-x", e.x0, e.x1, LINE && (LINE.dist || LINE.dx) ? "distance along the line (km)" : "trace");
 }
@@ -208,20 +279,29 @@ function seisClip(arr){
   return (percentileAbs(arr, DISP.clip) || 1e-30) / (DISP.gain || 1);
 }
 
+/* The seismic, sliced to the view, drawn into a canvas. */
+function paintSeis(canvas, id, sec, arr, c){
+  const v = viewOf(sec), a = sliceArr(arr, sec, v), sub = sliceSec(sec, v);
+  DISPLAY_H = frameRows(id, sub.ns);
+  const lo = DISP.polarity > 0 ? -c : c, hi = DISP.polarity > 0 ? c : -c;
+  draw(canvas, a, sub.nx, sub.ns, lo, hi, buildLUT(DISP.cmap));
+  return {v, sub};
+}
+
 /* A seismic amplitude panel. clip: the amplitude at the ends of the color bar,
    shared between panels that are compared. */
 function drawSeis(id, sec, arr, clip, noteText){
   const c = clip || seisClip(arr);
   const lut = buildLUT(DISP.cmap);
-  DISPLAY_H = frameRows(id, sec.ns);
-  const lo = DISP.polarity > 0 ? -c : c, hi = DISP.polarity > 0 ? c : -c;
-  draw($(id + "-img"), arr, sec.nx, sec.ns, lo, hi, lut);
-  drawAxes(id, sec);
+  const {v, sub} = paintSeis($(id + "-img"), id, sec, arr, c);
+  clearCanvas($(id + "-cls"));
+  drawAxes(id, sub);
   drawColorbar(id + "-cb", -c, c, DISP.polarity > 0 ? lut : flipLut(lut), "amplitude");
   if (noteText !== undefined) $(id + "-note").textContent = noteText;
-  PANEL_DATA[id] = {sec, arr, unit: ""};
+  PANEL_DATA[id] = Object.assign(PANEL_DATA[id] || {}, {sec, arr, v, unit: ""});
   return c;
 }
+function clearCanvas(cv){ cv.width = 1; cv.height = 1; cv.getContext("2d").clearRect(0, 0, 1, 1); cv.style.opacity = 1; }
 function flipLut(lut){
   // the color bar is drawn low value at the bottom; with polarity reversed the
   // colors run the other way along the same numeric axis
@@ -230,36 +310,61 @@ function flipLut(lut){
   return out;
 }
 
-function drawAttrPanel(id, sec, arr, vmin, vmax, cmap, label, noteText){
+/* An attribute panel. With alpha below 1 the attribute is drawn over the
+   seismic at that opacity, which is co-rendering; at 1 the attribute alone. */
+function drawAttrPanel(id, sec, arr, vmin, vmax, cmap, label, noteText, alpha, seis){
   const lut = buildLUT(cmap);
-  DISPLAY_H = frameRows(id, sec.ns);
-  drawRange($(id + "-img"), arr, sec.nx, sec.ns, vmin, vmax, lut);
-  drawAxes(id, sec);
+  const v = viewOf(sec), sub = sliceSec(sec, v), a = sliceArr(arr, sec, v);
+  DISPLAY_H = frameRows(id, sub.ns);
+  const co = alpha !== undefined && alpha < 1 && seis;
+  if (co){
+    paintSeis($(id + "-img"), id, sec, seis, seisClip(seis));
+    DISPLAY_H = frameRows(id, sub.ns);
+    drawRange($(id + "-cls"), a, sub.nx, sub.ns, vmin, vmax, lut);
+    $(id + "-cls").style.opacity = alpha;
+  } else {
+    drawRange($(id + "-img"), a, sub.nx, sub.ns, vmin, vmax, lut);
+    clearCanvas($(id + "-cls"));
+  }
+  drawAxes(id, sub);
   drawColorbar(id + "-cb", vmin, vmax, lut, label || "");
   if (noteText !== undefined) $(id + "-note").textContent = noteText;
-  PANEL_DATA[id] = {sec, arr, unit: label || ""};
+  PANEL_DATA[id] = Object.assign(PANEL_DATA[id] || {}, {sec, arr, v, unit: label || ""});
 }
 
-function drawRGBPanel(id, sec, ch, scales, noteText){
-  DISPLAY_H = frameRows(id, sec.ns);
-  drawRGB($(id + "-img"), ch, scales, sec.nx, sec.ns);
-  drawAxes(id, sec);
+function drawRGBPanel(id, sec, ch, scales, noteText, alpha, seis){
+  const v = viewOf(sec), sub = sliceSec(sec, v);
+  const chs = ch.map(c => sliceArr(c, sec, v));
+  DISPLAY_H = frameRows(id, sub.ns);
+  const co = alpha !== undefined && alpha < 1 && seis;
+  if (co){
+    paintSeis($(id + "-img"), id, sec, seis, seisClip(seis));
+    DISPLAY_H = frameRows(id, sub.ns);
+    drawRGB($(id + "-cls"), chs, scales, sub.nx, sub.ns);
+    $(id + "-cls").style.opacity = alpha;
+  } else {
+    drawRGB($(id + "-img"), chs, scales, sub.nx, sub.ns);
+    clearCanvas($(id + "-cls"));
+  }
+  drawAxes(id, sub);
   const cb = $(id + "-cb"); const g = cb.getContext("2d"); g.clearRect(0, 0, cb.width, cb.height);
   if (noteText !== undefined) $(id + "-note").textContent = noteText;
-  PANEL_DATA[id] = {sec, arr: null};
+  PANEL_DATA[id] = Object.assign(PANEL_DATA[id] || {}, {sec, arr: null, v});
 }
 
 /* ---------- readout ---------- */
 const PANEL_DATA = {};
-function frameToSample(id, ev){
+/* The section sample under the pointer, in indices of the whole section. */
+function frameToSample(id, ev, loose){
   const P = PANEL_DATA[id];
   if (!P) return null;
   const r = $(id + "-frame").getBoundingClientRect();
-  const u = (ev.clientX - r.left) / r.width, v = (ev.clientY - r.top) / r.height;
-  if (u < 0 || u > 1 || v < 0 || v > 1) return null;
-  const i = Math.min(P.sec.nx - 1, Math.max(0, Math.round(u * (P.sec.nx - 1))));
-  const j = Math.min(P.sec.ns - 1, Math.max(0, Math.round(v * (P.sec.ns - 1))));
-  return {i, j, u, v};
+  let u = (ev.clientX - r.left) / r.width, w = (ev.clientY - r.top) / r.height;
+  if (!loose && (u < 0 || u > 1 || w < 0 || w > 1)) return null;
+  u = Math.max(0, Math.min(1, u)); w = Math.max(0, Math.min(1, w));
+  const v = P.v;
+  const i = Math.round(v.i0 + u * (v.i1 - v.i0)), j = Math.round(v.j0 + w * (v.j1 - v.j0));
+  return {i, j, u, v: w};
 }
 function attachReadout(id){
   const fr = $(id + "-frame"), ro = $(id + "-ro");
@@ -275,44 +380,55 @@ function attachReadout(id){
   fr.addEventListener("mouseleave", () => { ro.hidden = true; });
 }
 
-/* ---------- drag a box ---------- */
+/* ---------- boxes drawn and dragged on a panel ---------- */
 function drawBoxOverlay(id, box, sec, dim){
   const cv = $(id + "-ovl");
   const {ctx, w, h} = fitCanvas(cv);
   if (!box) return;
-  const x0 = box.i0 / Math.max(1, sec.nx - 1) * w, x1 = box.i1 / Math.max(1, sec.nx - 1) * w;
-  const y0 = box.j0 / Math.max(1, sec.ns - 1) * h, y1 = box.j1 / Math.max(1, sec.ns - 1) * h;
+  const a = fracOf(id, box.i0, box.j0), b = fracOf(id, box.i1, box.j1);
+  const x0 = a.x * w, x1 = b.x * w, y0 = a.y * h, y1 = b.y * h;
   if (dim){
     ctx.fillStyle = "rgba(17,17,17,0.6)";
-    ctx.fillRect(0, 0, w, y0); ctx.fillRect(0, y1, w, h - y1);
-    ctx.fillRect(0, y0, x0, y1 - y0); ctx.fillRect(x1, y0, w - x1, y1 - y0);
+    ctx.fillRect(0, 0, w, Math.max(0, y0)); ctx.fillRect(0, y1, w, h - y1);
+    ctx.fillRect(0, y0, Math.max(0, x0), y1 - y0); ctx.fillRect(x1, y0, w - x1, y1 - y0);
   }
   ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
   ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
 }
-function enableBox(id, onBox){
+
+/* A drag on any panel either zooms every panel on the page or, on pages that
+   select something with a box and with that mode chosen, hands the box to the
+   page. A drag too small to be a box is a click. */
+function wireDrag(id){
   const fr = $(id + "-frame");
-  fr.classList.add("crosshair");
   let a = null;
   fr.addEventListener("mousedown", ev => { a = frameToSample(id, ev); ev.preventDefault(); });
   window.addEventListener("mousemove", ev => {
     if (!a) return;
-    const b = frameToSample(id, ev);
+    const b = frameToSample(id, ev, true);
     if (!b) return;
     const P = PANEL_DATA[id];
-    drawBoxOverlay(id, {i0: Math.min(a.i, b.i), i1: Math.max(a.i, b.i),
-                        j0: Math.min(a.j, b.j), j1: Math.max(a.j, b.j)}, P.sec, false);
+    const box = {i0: Math.min(a.i, b.i), i1: Math.max(a.i, b.i), j0: Math.min(a.j, b.j), j1: Math.max(a.j, b.j)};
+    if (Math.abs(a.u - b.u) + Math.abs(a.v - b.v) > 0.01) drawBoxOverlay(id, box, P.sec, false);
   });
   window.addEventListener("mouseup", ev => {
     if (!a) return;
-    const b = frameToSample(id, ev) || a;
-    const box = {i0: Math.min(a.i, b.i), i1: Math.max(a.i, b.i),
-                 j0: Math.min(a.j, b.j), j1: Math.max(a.j, b.j)};
-    a = null;
-    if (box.i1 - box.i0 < 8 || box.j1 - box.j0 < 16) { onBox(null, b); return; }
-    onBox(box);
+    const b = frameToSample(id, ev, true) || a;
+    const start = a; a = null;
+    const act = PANEL_ACT[id] || {};
+    const small = Math.abs(start.u - b.u) < 0.01 && Math.abs(start.v - b.v) < 0.01;
+    if (small){ if (act.click) act.click(start); else REDRAW(); return; }
+    const box = {i0: Math.min(start.i, b.i), i1: Math.max(start.i, b.i), j0: Math.min(start.j, b.j), j1: Math.max(start.j, b.j)};
+    if (act.select && DRAGMODE === "select"){
+      if (box.i1 - box.i0 < 8 || box.j1 - box.j0 < 16){ REDRAW(); return; }
+      act.select(box); return;
+    }
+    if (box.i1 - box.i0 < 4 || box.j1 - box.j0 < 8){ REDRAW(); return; }
+    VIEW = box; VIEWSYNC(); REDRAW();
   });
 }
+function enableBox(id, onBox){ PANEL_ACT[id] = Object.assign(PANEL_ACT[id] || {}, {select: box => onBox(box)}); }
+function onPanelClick(id, fn){ PANEL_ACT[id] = Object.assign(PANEL_ACT[id] || {}, {click: fn}); }
 
 /* ---------- display controls ---------- */
 function displayControls(host, onChange){
