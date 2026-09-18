@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
+<title>8. SHAP — Analyze 2D</title>
+<style>
+.shaprow{display:grid;grid-template-columns:260px minmax(0,1fr);gap:1rem;align-items:start;margin-top:1rem}
+.shaprow canvas.gridc{width:100%;display:block;border-radius:2px}
+.bars canvas{width:100%;display:block}
+@media (max-width:1000px){.shaprow{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>SHAP values<button class="help" data-help="shap">Learn more</button></h2>
+    <div class="guide"><p>The bars give how far each attribute moves a sample across the map.
+    Click the section to see the same for one sample, drawn as a path of arrows on the map.</p></div>
+    <h2>Run</h2>
+    <div class="runs" id="runs"></div>
+    <p class="hint" id="rebuild"></p>
+    <div class="progress" id="prog" hidden><span></span></div>
+    <h2>Classes on the section</h2>
+    <label>Class opacity <b><span id="v-alpha"></span></b></label>
+    <input type="range" id="alpha" min="0" max="1" step="0.05" value="0.8">
+    <canvas id="key" style="width:100%;display:block;cursor:pointer;margin-top:8px"></canvas>
+    <div class="keybtns"><button id="nAll">Show all</button><button id="nNone">Hide all</button></div>
+    <p class="hint" id="shownText">Click a neuron to hide or show its class on the section; shift-click shows it alone.</p>
+
+    <h2>Second map</h2>
+    <p class="hint">The attribute set, map size and window of the chosen run are carried to
+    step 9, where attributes can be added or taken out and a second map trained on the same window.</p>
+    <div class="btnrow"><button class="primary" id="btnRevise">Refine this run on step 9</button></div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="figrow" style="margin-top:0">
+      <div class="bars"><h3>Global SHAP: mean distance moved, fraction of map width</h3><canvas id="global"></canvas></div>
+      <div class="note" id="gnote"></div>
+    </div>
+    <div class="panels" id="panels" style="margin-top:1rem"></div>
+    <div class="shaprow">
+      <div><h3 style="font-size:.84rem;margin:0 0 .3rem;font-family:var(--display)" id="sampleTitle">Click the section to explain a sample</h3>
+        <canvas class="gridc" id="path"></canvas></div>
+      <div class="bars"><h3 style="font-size:.84rem;margin:0 0 .3rem;font-family:var(--display)">Local SHAP: distance this sample is moved, fraction of map width</h3>
+        <canvas id="local"></canvas>
+        <div id="values"></div></div>
+    </div>
+    <div class="note" id="note"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/attributes.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/somview.js"></script>
+<script>
+let SEC = null, RUNS = [], CUR = -1, worker = null, READY = false, EXPL = null, SAMPLE = null, HIDDEN = new Set();
+
+(async function init(){
+  await pageShell("shap");
+  if (!LINE){ emptyState($("stage"), "No line is open."); return; }
+  SEC = sectionOf(await stageInput(null));
+  RUNS = (await kvGet("runs")) || [];
+  if (!SEC || !RUNS.length){ emptyState($("stage"), "No self-organizing map has been trained yet. Step 7 trains one."); return; }
+  CUR = RUNS.length - 1;
+  displayControls($("side"), drawSection);
+  makePanel($("panels"), "pCls", "Classes", {height: 320});
+  attachReadout("pCls");
+  onPanelClick("pCls", s => pick(s));
+  viewBar($("stage"));
+  $("vbText").textContent = "Drag a box to zoom in. Click a sample to explain it.";
+  onView(drawSection);
+  select(CUR);
+  glossaryScan(document.querySelector("aside"));
+})();
+
+function run(){ return RUNS[CUR]; }
+
+function runsList(){
+  $("runs").innerHTML = RUNS.map((r, i) => '<button data-run="' + i + '" aria-pressed="' + (i === CUR) + '">' + runLabel(r) +
+    "<small>" + r.keys.map(attrShort).join(", ") + "</small></button>").join("");
+}
+
+function select(i){
+  CUR = i; EXPL = null; SAMPLE = null; READY = false; HIDDEN = new Set();
+  runsList();
+  const r = run();
+  $("where").innerHTML = runLabel(r) + " on <b>" + STAGE_NAMES[r.stage] + "</b>";
+  drawGlobal(); drawSection(); drawLocal();
+  $("note").innerHTML = "<p>" + redundancyText(r) + "</p>";
+  rebuild();
+}
+
+function drawGlobal(){
+  const r = run();
+  if (!r.importance){ $("gnote").innerHTML = "<p>SHAP values were not computed for this run.</p>"; return; }
+  const order = r.keys.map((k, j) => [k, r.importance[j]]).sort((a, b) => b[1] - a[1]);
+  hbars($("global"), order.map(([k]) => attrName(k)), order.map(([, v]) => v), {min: 0, max: 0.3, color: "#5C6670"});
+  const span = r.side - 1;
+  $("gnote").innerHTML = "<p>Averaged over 400 random samples in the window. The scale is a fraction of the map width, " +
+    "so 0.10 on this " + r.side + " × " + r.side + " map is " + (0.1 * span).toFixed(1) + " neuron spacings. " +
+    "The longest bar is " + attrName(order[0][0]).toLowerCase() + " and the shortest " + attrName(order[order.length - 1][0]).toLowerCase() +
+    ". An attribute with a short bar changes little about where samples land.</p>";
+}
+
+function drawSection(){
+  if (!SEC) return;
+  const r = run();
+  drawSeis("pCls", SEC, SEC.data);
+  drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN);
+  $("v-alpha").textContent = (+$("alpha").value).toFixed(2);
+  drawGrid($("key"), r, HIDDEN);
+  $("shownText").textContent = "Visible classes cover " + (100 * shownShare(r, HIDDEN)).toFixed(0) +
+    "% of the window. Click a neuron to hide or show its class; shift-click shows it alone.";
+  if (SAMPLE){
+    const {ctx, w, h} = fitCanvas($("pCls-ovl"));
+    const f = fracOf("pCls", SAMPLE.i, SAMPLE.j), x = f.x * w, y = f.y * h;
+    ctx.fillStyle = "#ffd166"; ctx.strokeStyle = "#000"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+}
+
+function drawLocal(){
+  const r = run();
+  drawGrid($("path"), r, null, EXPL);
+  if (!EXPL){ const {ctx} = fitCanvas($("local")); $("values").innerHTML = ""; return; }
+  const span = Math.max(r.side - 1, 1);
+  const order = EXPL.phi.map((v, j) => [j, Math.hypot(v[0], v[1]) / span]).sort((a, b) => b[1] - a[1]);
+  hbars($("local"), order.map(([j]) => attrName(r.keys[j])), order.map(([, v]) => v), {min: 0, max: 0.4, color: "#841617"});
+  $("values").innerHTML = '<table class="data"><tr><th>Attribute</th><th>Value at the sample, standard deviations from the window mean</th></tr>' +
+    order.map(([j]) => "<tr><th>" + attrName(r.keys[j]) + "</th><td>" + EXPL.values[j].toFixed(2) + "</td></tr>").join("") + "</table>";
+}
+
+function rebuild(){
+  const r = run();
+  if (worker) worker.terminate();
+  if (r.stage !== SEC.stage || r.stageTs !== SEC.ts){
+    $("rebuild").textContent = "The section has changed since this run was trained, so single samples cannot be explained for it. Training the same attributes again on step 7 makes them available.";
+    return;
+  }
+  $("rebuild").textContent = "Preparing this run for single-sample explanations…";
+  $("prog").hidden = false;
+  worker = new Worker("../js/som-worker.js");
+  worker.onmessage = e => {
+    const m = e.data;
+    if (m.type === "progress") $("prog").firstElementChild.style.width = Math.round(m.frac * 100) + "%";
+    if (m.type === "ready"){ READY = true; $("prog").hidden = true; $("rebuild").textContent = "Ready. Click a sample on the section."; }
+    if (m.type === "error"){ $("prog").hidden = true; $("rebuild").textContent = "Preparation failed: " + m.message; }
+    if (m.type === "explain"){
+      EXPL = m; drawLocal();
+      const k = r.bmu[m.index];
+      $("sampleTitle").textContent = fmt(kmAt(SEC.i0 + SAMPLE.i), 2) + " km, " + fmt(secAt(SEC.j0 + SAMPLE.j), 3) +
+        " s: neuron row " + (Math.floor(k / r.side) + 1) + ", column " + (k % r.side + 1);
+    }
+  };
+  worker.postMessage({type: "rebuild", section: {data: SEC.data, nx: SEC.nx, ns: SEC.ns, dt: SEC.dt},
+                      keys: r.keys, params: r.params, facies: r.facies, win: r.win, tstep: r.tstep,
+                      side: r.side, W: r.W, mean: r.mean, sd: r.sd, tau: r.tau, seed: r.seed});
+}
+
+function pick(s){
+  const r = run();
+  const gi = s.i - r.win.i0, gj = Math.round((s.j - r.win.j0) / r.tstep);
+  if (gi < 0 || gi >= r.gnx || gj < 0 || gj >= r.gnt){ $("sampleTitle").textContent = "That sample is outside the window this run was trained on."; return; }
+  SAMPLE = {i: r.win.i0 + gi, j: r.win.j0 + gj * r.tstep};
+  drawSection();
+  if (!READY){ $("sampleTitle").textContent = "The run is still being prepared."; return; }
+  $("sampleTitle").textContent = "Computing SHAP values for the sample…";
+  worker.postMessage({type: "explain", index: gi * r.gnt + gj});
+}
+
+$("alpha").addEventListener("input", drawSection);
+$("key").addEventListener("click", ev => {
+  const r = run(), k = gridHit($("key"), r, ev); if (k < 0) return;
+  toggleNeuron(r, HIDDEN, k, ev.shiftKey); drawSection();
+});
+$("nAll").addEventListener("click", () => { HIDDEN = new Set(); drawSection(); });
+$("nNone").addEventListener("click", () => { const r = run(); HIDDEN = new Set([...Array(r.side * r.side).keys()]); drawSection(); });
+$("runs").addEventListener("click", e => { const b = e.target.closest("[data-run]"); if (b) select(+b.dataset.run); });
+$("btnRevise").addEventListener("click", async () => { await kvSet("refineBase", run().id); await kvSet("refinePicks", run().keys); location.href = "9-refine.html"; });
+window.addEventListener("resize", debounce(() => { drawGlobal(); drawSection(); drawLocal(); }, 250));
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

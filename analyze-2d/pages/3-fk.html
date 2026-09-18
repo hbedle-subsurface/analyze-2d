@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
+<title>3. f-k filter — Analyze 2D</title>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>f-k filter<button class="help" data-help="fk">Learn more</button></h2>
+    <label class="toggle"><input type="checkbox" id="apply"> Apply this step</label>
+    <div class="guide"><p>The filter removes events steeper than the dip limit and
+    frequencies outside the pass band. The removed panel shows what went.</p></div>
+    <label>Reject dips steeper than <b><span id="v-dip"></span> samples/trace</b></label>
+    <input type="range" id="dipMax" min="0.05" max="4" step="0.01" value="1">
+    <label>Transition width <b><span id="v-tap"></span>% of the limit</b></label>
+    <input type="range" id="tapPct" min="5" max="100" step="1" value="30">
+    <label>Low cut <b><span id="v-flo"></span> Hz</b></label>
+    <input type="range" id="fLo" min="0" max="60" step="1" value="0">
+    <label>High cut <b><span id="v-fhi"></span> Hz</b></label>
+    <input type="range" id="fHi" min="10" max="250" step="1" value="120">
+    <div class="btnrow">
+      <button id="btnDip">Dip limit from the data</button>
+      <button id="btnBand">Band from step 2</button>
+    </div>
+    <p class="hint" id="dipInfo"></p>
+    <h2>Removed panel</h2>
+    <label>Gain on the removed panel <b><span id="v-remGain"></span>×</b></label>
+    <input type="range" id="remGain" min="1" max="20" step="0.5" value="4">
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="panels" id="panels"></div>
+    <div class="figrow">
+      <div><h3>f-k spectrum of the input, rejected region shaded</h3>
+        <div class="plotbox"><canvas id="fk" width="520" height="260" style="height:260px"></canvas></div></div>
+      <div class="note" id="note"></div>
+    </div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/filterpage.js"></script>
+<script>
+let fkCache = null, DIPSTAT = null, RES = null, FP_SIG = 3, EXT = null;
+
+/* The f-k transform treats the section as periodic, so a crop edge that cuts
+   through strong reflections becomes a step, and the filter spreads that step
+   into the removed panel. Where the line continues beyond the crop, the
+   transform is taken over the crop plus a margin of the line as read, and the
+   result is cut back to the crop. Measured on SCAN029 cut at 1.65 s, this
+   takes the removed energy in the bottom 100 ms from 0.131 to 0.087 of the
+   input RMS, the level it has when the record is not cut there. */
+const MARGIN_MS = 250, MARGIN_TR = 64;
+async function extendedInput(input){
+  const raw = sectionOf(await stageLoad("raw"));
+  if (!raw) return null;
+  const mt = Math.round(MARGIN_MS / (input.dt / 1000));
+  const a = Math.max(0, input.i0 - MARGIN_TR), b = Math.min(raw.nx - 1, input.i0 + input.nx - 1 + MARGIN_TR);
+  const c = Math.max(0, input.j0 - mt), e = Math.min(raw.ns - 1, input.j0 + input.ns - 1 + mt);
+  const nx = b - a + 1, ns = e - c + 1;
+  if (nx === input.nx && ns === input.ns) return null;
+  const d = new Float32Array(nx * ns);
+  for (let i = 0; i < nx; i++) d.set(raw.data.subarray((a + i) * raw.ns + c, (a + i) * raw.ns + c + ns), i * ns);
+  return {data: d, nx, ns, di: input.i0 - a, dj: input.j0 - c,
+          left: input.i0 - a, right: b - (input.i0 + input.nx - 1), top: input.j0 - c, bottom: e - (input.j0 + input.ns - 1)};
+}
+
+/* The transition is a fraction of the dip limit, so the taper has the same
+   shape whether the limit is 0.2 samples per trace on a legacy line or 3 on
+   modern data. A fixed width of 0.1 is a 50% taper at a limit of 0.2 and a 3%
+   one at a limit of 3.4, sharp enough to put streaks at the limit dip into the
+   removed panel. */
+const params = () => ({dt: FP.input.dt, dipMax: +$("dipMax").value, tapPct: +$("tapPct").value,
+                       dipTap: +$("dipMax").value * +$("tapPct").value / 100,
+                       fLo: +$("fLo").value, fHi: +$("fHi").value});
+
+filterPage({
+  stage: "fk", stepId: "fk",
+  controls: ["dipMax", "tapPct", "fLo", "fHi"],
+  delay: 450,
+  async prepare(input, band){
+    setBusy("Transforming the input to f-k…");
+    await nextFrame();
+    EXT = await extendedInput(input);
+    fkCache = EXT ? fkForward(EXT.data, EXT.nx, EXT.ns) : fkForward(input.data, input.nx, input.ns);
+    const nyq = 0.5 / (input.dt * 1e-6);
+    $("fHi").max = Math.round(nyq); $("fLo").max = Math.round(Math.min(80, nyq / 2));
+    const sig = band && (band.fc || band.fpk) > 0 ? Math.max(1.5, Math.min(6, 1000 / (band.fc || band.fpk) / (input.dt / 1000) / 2)) : 3;
+    setBusy("Measuring dips…");
+    await nextFrame();
+    DIPSTAT = dipStats(computeTensor(input.data, input.nx, input.ns, sig));
+    FP_SIG = sig;
+    setBusy("");
+    $("dipInfo").textContent = DIPSTAT
+      ? "On layered parts of the input, half of the dips are below " + DIPSTAT.p50.toFixed(2) +
+        " and 99.5% below " + DIPSTAT.p995.toFixed(2) + " samples per trace."
+      : "Too few layered samples to measure a dip distribution.";
+  },
+  defaults(input, band){
+    if (DIPSTAT) $("dipMax").value = Math.max(0.05, Math.round(DIPSTAT.p995 * 1.2 / 0.05) * 0.05);
+    // no frequency limits until they are asked for: the filter starts as a
+    // dip filter only, and "Band from step 2" adds the measured band
+    $("fLo").value = 0; $("fHi").value = $("fHi").max;
+  },
+  setParams(p){ $("dipMax").value = p.dipMax; $("tapPct").value = p.tapPct || Math.round(100 * p.dipTap / p.dipMax);
+                $("fLo").value = p.fLo; $("fHi").value = p.fHi; },
+  readParams: params,
+  syncLabels(){
+    $("v-dip").textContent = (+$("dipMax").value).toFixed(2);
+    $("v-tap").textContent = $("tapPct").value;
+    $("v-flo").textContent = $("fLo").value; $("v-fhi").textContent = $("fHi").value;
+  },
+  apply(input, p){
+    if (!EXT) return fkApply(fkCache, input.nx, input.ns, p);
+    const full = fkApply(fkCache, EXT.nx, EXT.ns, p);
+    const out = new Float32Array(input.nx * input.ns);
+    for (let i = 0; i < input.nx; i++)
+      out.set(full.subarray((EXT.di + i) * EXT.ns + EXT.dj, (EXT.di + i) * EXT.ns + EXT.dj + input.ns), i * input.ns);
+    return out;
+  },
+  after(){
+    const cv = $("fk");
+    const r = cv.getBoundingClientRect();
+    cv.width = Math.max(200, Math.round(r.width)); cv.height = 260;
+    drawFK(cv, params(), FP.input.nx, FP.input.ns, FP.input.dt);
+    RES = FP.on ? residualStats(FP.removed, FP.input.nx, FP.input.ns, {sosSig: FP_SIG, dipMax: +$("dipMax").value}) : null;
+    $("note").innerHTML = FP.cfg.note(FP);
+  },
+  note(fp){
+    if (!fp.on) return "<p>The step is skipped, so the next step works on " + STAGE_NAMES[fp.input.stage] + ".</p>";
+    let s = "<p>The removed part carries " + fp.pct.toFixed(1) + "% of the input energy.";
+    if (RES) s += " Of the removed samples, " + (100 * RES.lin).toFixed(0) + "% are organized into oriented events; of those, " +
+      (100 * RES.steep).toFixed(0) + "% dip more steeply than the limit. Oriented events beyond the limit are rejected " +
+      "coherent energy, and oriented events at the limit follow the edge of the rejected wedge.";
+    if (EXT) s += " The transform is taken over the crop plus up to " + (EXT.top || EXT.bottom ? Math.round(Math.max(EXT.top, EXT.bottom) * fp.input.dt / 1000) + " ms above and below" : "") +
+      (EXT.left || EXT.right ? ((EXT.top || EXT.bottom) ? " and " : "") + Math.max(EXT.left, EXT.right) + " traces to each side" : "") +
+      " where the line continues, then cut back, so the crop edges do not act as steps.";
+    else s += " The crop runs to the ends of the line, so its edges are the edges of the record and the filter treats them as steps; energy in the removed panel along an edge that crosses strong reflections comes from that step.";
+    const nyq = 0.5 / (fp.input.dt * 1e-6);
+    if (+$("fHi").value < nyq - 1) s += " A high cut also removes the part of every reflection above it, so a reflector that " +
+      "appears in the removed panel as a row of bright flecks is the high-frequency part of that reflector.";
+    return s + "</p><p>Reflector geometry in the removed panel, such as layering or a fault plane, " +
+      "is signal that the current dip limit rejects.</p>";
+  }
+});
+
+$("btnDip").addEventListener("click", () => {
+  if (!DIPSTAT) return;
+  $("dipMax").value = Math.max(0.05, Math.round(DIPSTAT.p995 * 1.2 / 0.05) * 0.05);
+  $("dipMax").dispatchEvent(new Event("input"));
+});
+$("btnBand").addEventListener("click", async () => {
+  const b = await kvGet("band");
+  if (!b) { $("dipInfo").textContent = "Step 2 has not measured the band yet."; return; }
+  $("fLo").value = Math.max(0, Math.floor(b.lo20)); $("fHi").value = Math.ceil(b.hi20);
+  $("fHi").dispatchEvent(new Event("input"));
+});
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

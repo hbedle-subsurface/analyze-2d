@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
+<title>1. Open the line — Analyze 2D</title>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>The file<button class="help" data-help="load">Learn more</button></h2>
+    <div id="fileInfo" class="hint"></div>
+
+    <h2>Trace spacing</h2>
+    <div id="spacingBox"></div>
+
+    <h2>Crop</h2>
+    <div class="guide"><p>With "Drag to crop" chosen above the section, a box dragged on it
+    sets the part of the line that every later step works on. The fields below give the same crop in numbers.</p></div>
+    <div class="row2">
+      <label>First trace<input type="number" id="ci0" min="0" step="1"></label>
+      <label>Last trace<input type="number" id="ci1" min="0" step="1"></label>
+      <label>Start, ms<input type="number" id="cj0" min="0" step="2"></label>
+      <label>End, ms<input type="number" id="cj1" min="0" step="2"></label>
+    </div>
+    <div class="btnrow"><button id="btnWhole">Whole line</button></div>
+    <p class="hint" id="cropNote"></p>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="panels" id="panels"></div>
+    <div class="note" id="note"></div>
+    <div id="headers"></div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script>
+let RAW = null, CROP = null;
+
+(async function init(){
+  await pageShell("line");
+  if (!LINE){ emptyState($("stage"), "No line is open."); return; }
+  RAW = sectionOf(await stageLoad("raw"));
+  if (!RAW){ emptyState($("stage"), "The stored line could not be read."); return; }
+  CROP = await kvGet("crop") || {i0: 0, i1: RAW.nx - 1, j0: 0, j1: RAW.ns - 1};
+
+  const recS = (LINE.ns - 1) * LINE.dt * 1e-6;
+  $("fileInfo").innerHTML =
+    "<b>" + LINE.name + "</b><br>" +
+    LINE.nx + " traces" + (LINE.step > 1 ? " (every " + LINE.step + "th of " + LINE.ntrFile + ", to stay within browser memory)" : "") +
+    "<br>" + LINE.ns + " samples at " + (LINE.dt / 1000) + " ms, " + recS.toFixed(2) + " s of record" +
+    "<br>First sample at " + (LINE.delayMs || 0) + " ms" +
+    "<br>CDP " + LINE.cdp0 + " to " + LINE.cdp1;
+
+  if (LINE.dist){
+    $("spacingBox").innerHTML = '<p class="hint">Distance is taken from the CDP coordinates in the trace headers: ' +
+      (LINE.dist[LINE.dist.length - 1] / 1000).toFixed(2) + " km along the line, " +
+      (LINE.dist[LINE.dist.length - 1] / Math.max(1, LINE.nx - 1)).toFixed(1) + " m between traces on average.</p>";
+  } else {
+    $("spacingBox").innerHTML =
+      '<p class="hint">The trace headers carry no usable coordinates, so the distance axis uses a spacing entered here.</p>' +
+      '<label>Trace spacing, m<input type="number" id="dx" min="0.5" step="0.5" value="' + (LINE.dx || 12.5) + '"></label>';
+    if (!LINE.dx){ LINE.dx = 12.5; await kvSet("line", LINE); }
+    $("dx").addEventListener("change", async () => {
+      LINE.dx = Math.max(0.5, +$("dx").value || 12.5);
+      await kvSet("line", LINE);
+      redraw();
+    });
+  }
+
+  displayControls($("side"), redraw);
+  makePanel($("panels"), "sec", "The line as read", {height: 420});
+  attachReadout("sec");
+  enableBox("sec", box => setCrop(box));
+  viewBar($("stage"), "crop");
+  onView(redraw);
+
+  writeHeaders();
+  syncFields();
+  redraw();
+  $("next").innerHTML = nextLink("line");
+  glossaryScan(document.body);
+})();
+
+function redraw(){
+  if (!RAW) return;
+  drawSeis("sec", RAW, RAW.data);
+  drawBoxOverlay("sec", CROP, RAW, true);
+  const km = kmAt(CROP.i1) - kmAt(CROP.i0);
+  $("where").innerHTML = "Crop: <b>" + (CROP.i1 - CROP.i0 + 1) + " traces</b>, " + fmt(km, 1) + " km, " +
+    fmt(secAt(CROP.j0), 2) + " to " + fmt(secAt(CROP.j1), 2) + " s";
+  const cells = (CROP.i1 - CROP.i0 + 1) * (CROP.j1 - CROP.j0 + 1);
+  $("note").innerHTML = "<p>The dashed box is the crop. Every later step, including the attributes " +
+    "and the self-organizing map, runs on the " + (cells / 1e6).toFixed(2) + " million samples inside it. " +
+    "The darkened area outside it is left out.</p>";
+}
+
+function syncFields(){
+  const ms = j => Math.round(secAt(j) * 1000);
+  $("ci0").value = CROP.i0; $("ci1").value = CROP.i1;
+  $("cj0").value = ms(CROP.j0); $("cj1").value = ms(CROP.j1);
+}
+
+async function setCrop(box){
+  const b = {i0: Math.max(0, box.i0), i1: Math.min(RAW.nx - 1, box.i1),
+             j0: Math.max(0, box.j0), j1: Math.min(RAW.ns - 1, box.j1)};
+  if (b.i1 - b.i0 < 16 || b.j1 - b.j0 < 32){ $("cropNote").textContent = "That crop is too small to filter or classify."; return; }
+  CROP = b; syncFields(); redraw();
+  setBusy("Storing the crop…");
+  await nextFrame();
+  const nx = b.i1 - b.i0 + 1, ns = b.j1 - b.j0 + 1;
+  const d = new Float32Array(nx * ns);
+  for (let i = 0; i < nx; i++) d.set(RAW.data.subarray((b.i0 + i) * RAW.ns + b.j0, (b.i0 + i) * RAW.ns + b.j0 + ns), i * ns);
+  await stageSave("crop", {data: d, nx, ns, dt: RAW.dt, j0: b.j0}, {i0: b.i0});
+  await stageDropAfter("crop");
+  await kvSet("crop", b);
+  await kvDelete("band");
+  setBusy("");
+  $("cropNote").textContent = "Crop stored. Results from later steps made on the previous crop have been cleared.";
+}
+
+function fromFields(){
+  const toJ = ms => Math.round((ms / 1000 - (LINE.delayMs || 0) / 1000) / (LINE.dt * 1e-6));
+  setCrop({i0: +$("ci0").value, i1: +$("ci1").value, j0: toJ(+$("cj0").value), j1: toJ(+$("cj1").value)});
+}
+["ci0", "ci1", "cj0", "cj1"].forEach(k => $(k).addEventListener("change", fromFields));
+$("btnWhole").addEventListener("click", () => setCrop({i0: 0, i1: RAW.nx - 1, j0: 0, j1: RAW.ns - 1}));
+window.addEventListener("resize", debounce(redraw, 200));
+
+function writeHeaders(){
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  let h = '<div class="figrow"><div><h3>Textual header</h3><pre class="ebcdic">' +
+    esc(LINE.textual.join("\n")) + "</pre></div>";
+  h += '<div><h3>Binary header</h3><table class="data">' +
+    Object.entries(LINE.binary).map(([k, v]) => "<tr><th>" + k + "</th><td>" + v + "</td></tr>").join("") +
+    "</table></div></div>";
+  h += '<h3 style="font-size:.84rem;margin:1rem 0 .2rem;font-family:var(--display)">First trace headers</h3>' +
+    '<table class="data"><tr><th>Trace (1)</th><th>CDP (21)</th><th>Scalar (71)</th><th>CDP X (181)</th>' +
+    "<th>CDP Y (185)</th><th>Delay, ms (109)</th><th>Samples (115)</th><th>Interval, µs (117)</th></tr>" +
+    LINE.traceRows.map(r => "<tr><td>" + [r.seq, r.cdp, r.scalar, r.x, r.y, r.delay, r.ns, r.dt].join("</td><td>") + "</td></tr>").join("") +
+    "</table>";
+  $("headers").innerHTML = h;
+}
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>
