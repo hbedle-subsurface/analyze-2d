@@ -28,7 +28,9 @@ const STEPS = [
   {id:"som",        n:8, file:"8-som.html",        title:"Self-organizing map", stage:null,
    blurb:"Unsupervised classes from a chosen set of attributes, with a null test."},
   {id:"shap",       n:9, file:"9-shap.html",       title:"SHAP",             stage:null,
-   blurb:"Which attributes decide where each sample lands on the map."}
+   blurb:"Which attributes decide where each sample lands on the map."},
+  {id:"refine",     n:10, file:"10-refine.html",   title:"Refine and compare", stage:null,
+   blurb:"A second map with a revised attribute set, compared with the first."}
 ];
 
 let LINE = null;       // {name, file, nx, ns, dt, delayMs, dx, dist}

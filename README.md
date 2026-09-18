@@ -34,7 +34,8 @@ are more organized than chance, and which attributes the classes depend on.
 | 6 | Detail boost | Separation into a base and a detail component |
 | 7 | Attributes | Twenty-two attributes, their correlation matrix, and a striping check |
 | 8 | Self-organizing map | Chosen attributes and map size, a facies window, a phase-randomized null test, runs compared side by side |
-| 9 | SHAP | Global and single-sample SHAP values for any run, and the run's attribute set carried back to step 8 |
+| 9 | SHAP | Global and single-sample SHAP values for any run |
+| 10 | Refine and compare | A second map on the same window with a revised attribute set, drawn under the first, with both sets of SHAP values on one axis |
 
 Steps 3 to 6 are off by default and can be skipped; a skipped step passes the
 line through unchanged. Each step stores its result in the browser (IndexedDB)
@@ -70,7 +71,7 @@ and opened at `http://localhost:8000/`.
 ## Repository layout
 
     index.html          landing page: open a line, and the step list
-    pages/              one HTML page per step, 1-line.html to 9-shap.html
+    pages/              one HTML page per step, 1-line.html to 10-refine.html
     js/segy.js          SEG-Y reader: EBCDIC and binary headers, IBM and IEEE float
     js/dsp.js           FFT, f-k, structure tensor, structure-oriented smoothing, detail boost
     js/spectrum.js      spectra and lateral continuity

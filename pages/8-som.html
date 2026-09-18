@@ -21,8 +21,8 @@
   <aside class="side" id="side">
     <h2>Self-organizing map<button class="help" data-help="som">Learn more</button></h2>
     <div class="guide"><p>Choose the attributes and the size of the map, then train it.
-    Every run is kept, so two runs can be compared below the section and each can be
-    read on the SHAP page.</p></div>
+    The run is read on the SHAP page, and a second map is trained and compared with it on
+    the Refine and compare page.</p></div>
     <div class="checks" id="checks"></div>
     <div class="btnrow"><button id="btnFromAttr">Same as step 7</button><button id="btnNone">Clear</button></div>
 
@@ -64,12 +64,6 @@
     <div class="note" id="note"></div>
     <div class="btnrow" id="nullRow" hidden><button id="btnNull">Test against a phase-randomized null</button></div>
 
-    <h3 style="font-family:var(--display);font-size:.9rem;margin:1.4rem 0 .3rem">Two runs on the same section</h3>
-    <div class="row2" style="max-width:520px">
-      <label>Upper<select id="cmpA"></select></label>
-      <label>Lower<select id="cmpB"></select></label>
-    </div>
-    <div class="panels" id="cmpPanels"></div>
     <div id="next"></div>
   </main>
 </div>
@@ -107,9 +101,6 @@ let SEC = null, RUNS = [], CUR = -1, HIDDEN = new Set(), WIN = null, worker = nu
   makePanel($("panels"), "pCls", "Classes over the section", {height: 380});
   attachReadout("pCls");
   enableBox("pCls", (box, click) => { if (box){ WIN = box; syncLabels(); drawAll(); } });
-  makePanel($("cmpPanels"), "pA", "Upper run", {height: 240});
-  makePanel($("cmpPanels"), "pB", "Lower run", {height: 240});
-  ["pA", "pB"].forEach(id => { attachReadout(id); linkPair(id); });
   CUR = RUNS.length - 1;
   runsList();
   drawAll();
@@ -147,7 +138,6 @@ function drawAll(){
   $("pCls-title").textContent = r ? runLabel(r) : "Seismic amplitude, no map trained yet";
   drawGrid($("grid"), r, HIDDEN);
   noteText();
-  drawCompare();
 }
 
 function noteText(){
@@ -175,31 +165,6 @@ function runsList(){
     return '<button data-run="' + i + '" aria-pressed="' + (i === CUR) + '">' + runLabel(r) +
       "<small>" + r.keys.map(attrShort).join(", ") + "</small><small>Largest SHAP: " + top + "</small></button>";
   }).join("") + '<button id="btnClearRuns" style="margin-top:.3rem">Delete all runs</button>';
-  const opts = RUNS.map((r, i) => '<option value="' + i + '">' + runLabel(r) + "</option>").join("");
-  const a = $("cmpA").value, b = $("cmpB").value;
-  $("cmpA").innerHTML = opts; $("cmpB").innerHTML = opts;
-  $("cmpA").value = a !== "" && a < RUNS.length ? a : Math.max(0, RUNS.length - 2);
-  $("cmpB").value = b !== "" && b < RUNS.length ? b : Math.max(0, RUNS.length - 1);
-}
-
-function drawCompare(){
-  const A = RUNS[+$("cmpA").value], B = RUNS[+$("cmpB").value];
-  [["pA", A], ["pB", B]].forEach(([id, r]) => {
-    drawSeis(id, SEC, SEC.data);
-    drawClasses(id, SEC, r, +$("alpha").value, null);
-    $(id + "-title").textContent = r ? runLabel(r) : "No run";
-    $(id + "-note").textContent = r ? r.keys.map(attrShort).join(", ") : "";
-  });
-}
-
-function linkPair(id){
-  const fr = $(id + "-frame");
-  fr.addEventListener("mousemove", ev => {
-    const r = fr.getBoundingClientRect(), u = (ev.clientX - r.left) / r.width, v = (ev.clientY - r.top) / r.height;
-    ["pA", "pB"].forEach(k => { const {ctx, w, h} = fitCanvas($(k + "-ovl")); ctx.strokeStyle = "rgba(255,209,102,0.9)";
-      ctx.beginPath(); ctx.moveTo(u * w, 0); ctx.lineTo(u * w, h); ctx.moveTo(0, v * h); ctx.lineTo(w, v * h); ctx.stroke(); });
-  });
-  fr.addEventListener("mouseleave", () => ["pA", "pB"].forEach(k => fitCanvas($(k + "-ovl"))));
 }
 
 async function train(){
@@ -262,9 +227,7 @@ $("btnWhole").addEventListener("click", () => { WIN = {i0: 0, i1: SEC.nx - 1, j0
 $("btnFromAttr").addEventListener("click", async () => setPicks(((await kvGet("attrSel")) || []).filter(k => SOM_KEYS.includes(k))));
 $("btnNone").addEventListener("click", () => setPicks([]));
 ["somSide", "ftr", "fms"].forEach(k => $(k).addEventListener("input", syncLabels));
-$("alpha").addEventListener("input", () => { const r = run(); drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN); drawCompare(); });
-$("cmpA").addEventListener("change", drawCompare);
-$("cmpB").addEventListener("change", drawCompare);
+$("alpha").addEventListener("input", () => { const r = run(); drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN); });
 $("runs").addEventListener("click", async e => {
   if (e.target.id === "btnClearRuns"){ RUNS = []; CUR = -1; await saveRuns(); runsList(); drawAll(); return; }
   const b = e.target.closest("[data-run]"); if (!b) return;

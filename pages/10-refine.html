@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
+<title>10. Refine and compare — Analyze 2D</title>
+<style>
+.cmprow{display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:12px;align-items:start}
+.cmprow .key canvas{width:100%;display:block}
+.cmprow .key p{margin:6px 0 0;font-size:.8rem}
+@media (max-width:1000px){.cmprow{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>Refine and compare<button class="help" data-help="som">Learn more</button></h2>
+    <div class="guide"><p>A second map is trained on the same window, with the same facies
+    window, as the first. The attribute set and the number of neurons can be changed.</p></div>
+    <label>First map<select id="baseSel"></select></label>
+    <p class="hint" id="baseInfo"></p>
+
+    <h2>Second map</h2>
+    <div class="checks" id="checks"></div>
+    <div class="btnrow"><button id="btnSame">Same as first</button><button id="btnNone">Clear</button></div>
+    <label>Neurons <b><span id="v-side"></span></b></label>
+    <input type="range" id="somSide2" min="3" max="12" step="1" value="6">
+    <div class="btnrow"><button class="primary" id="btnTrain">Train the second map</button></div>
+    <div class="progress" id="prog" hidden><span></span></div>
+    <p class="hint" id="progText"></p>
+
+    <h2>Compared with</h2>
+    <label>Second map<select id="cmpSel"></select></label>
+    <label>Class opacity <input type="range" id="alpha" min="0.2" max="1" step="0.05" value="0.85"></label>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="cmprow">
+      <div class="panels" id="pA-host"></div>
+      <div class="key"><canvas id="gridA"></canvas><p>First map</p></div>
+    </div>
+    <div class="cmprow" style="margin-top:14px">
+      <div class="panels" id="pB-host"></div>
+      <div class="key"><canvas id="gridB"></canvas><p id="gridBcap">Second map</p></div>
+    </div>
+    <div class="figrow">
+      <div class="bars"><h3>Global SHAP, first map</h3><canvas id="shapA"></canvas></div>
+      <div class="bars"><h3>Global SHAP, second map</h3><canvas id="shapB"></canvas></div>
+    </div>
+    <div class="note" id="note"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/attributes.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/somview.js"></script>
+<script>
+let SEC = null, RUNS = [], BASE = -1, CMP = -1, worker = null, BUSY = false;
+
+(async function init(){
+  await pageShell("refine");
+  if (!LINE){ emptyState($("stage"), "No line is open."); return; }
+  SEC = sectionOf(await stageInput(null));
+  RUNS = (await kvGet("runs")) || [];
+  if (!SEC || !RUNS.length){ emptyState($("stage"), "No self-organizing map has been trained yet. Step 8 trains the first one."); return; }
+  const baseId = await kvGet("refineBase");
+  BASE = Math.max(0, RUNS.findIndex(r => r.id === baseId));
+  if (baseId === null) BASE = 0;
+  $("checks").innerHTML = "<h4>Attributes</h4>" + SOM_KEYS.map(k =>
+    '<label><input type="checkbox" value="' + k + '"> ' + attrName(k) +
+    (k === "amp" ? "" : '<button class="help" data-help="' + k + '" type="button">?</button>') + "</label>").join("");
+  const picks = await kvGet("refinePicks");
+  setPicks(picks || RUNS[BASE].keys);
+  $("somSide2").value = RUNS[BASE].side;
+  pickCompare();
+  displayControls($("side"), drawAll);
+  makePanel($("pA-host"), "pA", "First map", {height: 250});
+  makePanel($("pB-host"), "pB", "Second map", {height: 250});
+  ["pA", "pB"].forEach(id => { attachReadout(id); linkPair(id); });
+  fillSelects(); syncLabels(); drawAll();
+  glossaryScan(document.querySelector("aside"));
+})();
+
+function picks(){ return [...document.querySelectorAll("#checks input:checked")].map(x => x.value); }
+function setPicks(keys){ document.querySelectorAll("#checks input").forEach(x => { x.checked = keys.includes(x.value); }); }
+function syncLabels(){ const s = +$("somSide2").value; $("v-side").textContent = s + " × " + s + " = " + s * s; }
+
+/* The second map is the most recent run made from the first one, if there is
+   one; otherwise nothing is compared yet. */
+function pickCompare(){
+  const base = RUNS[BASE];
+  let k = -1;
+  RUNS.forEach((r, i) => { if (r.from === base.id) k = i; });
+  CMP = k;
+}
+
+function fillSelects(){
+  $("baseSel").innerHTML = RUNS.map((r, i) => '<option value="' + i + '">' + runLabel(r) + "</option>").join("");
+  $("baseSel").value = BASE;
+  const kids = RUNS.map((r, i) => [r, i]).filter(([r, i]) => i !== BASE);
+  $("cmpSel").innerHTML = kids.length ? kids.map(([r, i]) => '<option value="' + i + '">' + runLabel(r) +
+    (r.from === RUNS[BASE].id ? ", from the first map" : "") + "</option>").join("") : '<option value="-1">No second map yet</option>';
+  $("cmpSel").value = CMP;
+  const b = RUNS[BASE];
+  $("baseInfo").textContent = b.keys.map(attrShort).join(", ") + ". Window " +
+    fmt(kmAt(SEC.i0 + b.win.i0), 1) + "–" + fmt(kmAt(SEC.i0 + b.win.i1), 1) + " km, " +
+    fmt(secAt(SEC.j0 + b.win.j0), 2) + "–" + fmt(secAt(SEC.j0 + b.win.j1), 2) + " s; facies window " +
+    b.facies.tr + " traces by " + b.facies.ms + " ms.";
+}
+
+function drawAll(){
+  if (!SEC) return;
+  const A = RUNS[BASE], B = RUNS[CMP] || null, al = +$("alpha").value;
+  drawSeis("pA", SEC, SEC.data); drawClasses("pA", SEC, A, al, null);
+  drawSeis("pB", SEC, SEC.data); drawClasses("pB", SEC, B, al, null);
+  $("pA-title").textContent = runLabel(A); $("pA-note").textContent = A.keys.map(attrShort).join(", ");
+  $("pB-title").textContent = B ? runLabel(B) : "No second map yet";
+  $("pB-note").textContent = B ? B.keys.map(attrShort).join(", ") : "";
+  drawGrid($("gridA"), A, null); drawGrid($("gridB"), B, null);
+  shapBars($("shapA"), A); shapBars($("shapB"), B);
+  $("where").innerHTML = "Both maps drawn over <b>" + STAGE_NAMES[SEC.stage] + "</b>";
+  note(A, B);
+}
+
+/* Both bar charts on the same fixed axis, so bar lengths compare directly. */
+function shapBars(cv, r){
+  if (!r || !r.importance){ const {ctx, w, h} = fitCanvas(cv); ctx.fillStyle = "#fffaf0"; ctx.fillRect(0, 0, w, h); return; }
+  const order = r.keys.map((k, j) => [k, r.importance[j]]).sort((a, b) => b[1] - a[1]);
+  hbars(cv, order.map(([k]) => attrName(k)), order.map(([, v]) => v), {min: 0, max: 0.3, color: "#5C6670"});
+}
+
+function note(A, B){
+  const line = r => "<b>" + runLabel(r) + "</b>: neighboring traces share a class " + (100 * r.agree).toFixed(1) + "% of the time" +
+    (r.nullAgree ? ", " + (r.agree / Math.max(1e-6, r.nullAgree)).toFixed(1) + " times the phase-randomized null" : "") + ".";
+  let s = "<p>" + line(A) + "</p>";
+  if (B){
+    s += "<p>" + line(B) + "</p>";
+    const added = B.keys.filter(k => !A.keys.includes(k)), dropped = A.keys.filter(k => !B.keys.includes(k));
+    s += "<p>" + (added.length ? "Added: " + added.map(attrName).join(", ") + ". " : "") +
+      (dropped.length ? "Taken out: " + dropped.map(attrName).join(", ") + ". " : "") +
+      (!added.length && !dropped.length ? "The two maps use the same attributes. " : "") +
+      "Neuron colors come from position on each map, so the same color on the two sections is a similar position on two different maps, not the same class.</p>";
+  }
+  $("note").innerHTML = s;
+}
+
+function linkPair(id){
+  const fr = $(id + "-frame");
+  fr.addEventListener("mousemove", ev => {
+    const r = fr.getBoundingClientRect(), u = (ev.clientX - r.left) / r.width, v = (ev.clientY - r.top) / r.height;
+    ["pA", "pB"].forEach(k => { const {ctx, w, h} = fitCanvas($(k + "-ovl")); ctx.strokeStyle = "rgba(255,209,102,0.9)";
+      ctx.beginPath(); ctx.moveTo(u * w, 0); ctx.lineTo(u * w, h); ctx.moveTo(0, v * h); ctx.lineTo(w, v * h); ctx.stroke(); });
+  });
+  fr.addEventListener("mouseleave", () => ["pA", "pB"].forEach(k => fitCanvas($(k + "-ovl"))));
+}
+
+async function train(){
+  if (BUSY) return;
+  const keys = picks();
+  if (keys.length < 2){ $("progText").textContent = "Choose at least two attributes."; return; }
+  const base = RUNS[BASE], side = +$("somSide2").value;
+  if (base.stage !== SEC.stage || base.stageTs !== SEC.ts){
+    $("progText").textContent = "The section has changed since the first map was trained, so the two would not describe the same data. Step 8 trains a new first map."; return;
+  }
+  await kvSet("refinePicks", keys);
+  BUSY = true; $("btnTrain").disabled = true; $("prog").hidden = false;
+  if (worker) worker.terminate();
+  worker = new Worker("../js/som-worker.js");
+  const rec = {id: Date.now(), n: Math.max(...RUNS.map(r => r.n)) + 1, keys, side, facies: base.facies, win: base.win,
+               tstep: base.tstep, params: base.params, stage: SEC.stage, stageTs: SEC.ts, seed: 7,
+               importance: null, nullAgree: null, from: base.id};
+  worker.onmessage = async e => {
+    const m = e.data;
+    if (m.type === "progress"){ $("prog").firstElementChild.style.width = Math.round(m.frac * 100) + "%"; $("progText").textContent = m.stage; }
+    if (m.type === "error"){ $("progText").textContent = "The run failed: " + m.message; BUSY = false; $("btnTrain").disabled = false; }
+    if (m.type === "map"){
+      Object.assign(rec, {bmu: m.bmu, hits: m.hits, corr: m.corr, W: m.W, mean: m.mean, sd: m.sd, tau: m.tau,
+                          agree: m.agree, gnx: m.gnx, gnt: m.gnt});
+      RUNS.push(rec); CMP = RUNS.length - 1;
+      fillSelects(); drawAll();
+      $("progText").textContent = "Map trained. Computing SHAP values…";
+    }
+    if (m.type === "importance"){
+      rec.importance = m.importance;
+      await kvSet("runs", RUNS);
+      $("progText").textContent = "Map trained. Running the null test…";
+      worker.postMessage({type: "null"});
+      drawAll();
+    }
+    if (m.type === "null"){
+      rec.nullAgree = m.agree;
+      await kvSet("runs", RUNS);
+      BUSY = false; $("btnTrain").disabled = false; $("prog").hidden = true;
+      $("progText").textContent = "Done. The second map can also be read on the SHAP page.";
+      drawAll();
+    }
+  };
+  worker.postMessage({type: "run", section: {data: SEC.data, nx: SEC.nx, ns: SEC.ns, dt: SEC.dt},
+                      keys, params: base.params, facies: base.facies, win: base.win, tstep: base.tstep, side, seed: 7});
+}
+
+$("btnTrain").addEventListener("click", train);
+$("btnSame").addEventListener("click", () => setPicks(RUNS[BASE].keys));
+$("btnNone").addEventListener("click", () => setPicks([]));
+$("somSide2").addEventListener("input", syncLabels);
+$("alpha").addEventListener("input", drawAll);
+$("baseSel").addEventListener("change", async () => {
+  BASE = +$("baseSel").value; await kvSet("refineBase", RUNS[BASE].id);
+  setPicks(RUNS[BASE].keys); $("somSide2").value = RUNS[BASE].side; syncLabels();
+  pickCompare(); fillSelects(); drawAll();
+});
+$("cmpSel").addEventListener("change", () => { CMP = +$("cmpSel").value; drawAll(); });
+window.addEventListener("resize", debounce(drawAll, 250));
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

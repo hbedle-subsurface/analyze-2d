@@ -26,10 +26,10 @@
     <div class="runs" id="runs"></div>
     <p class="hint" id="rebuild"></p>
     <div class="progress" id="prog" hidden><span></span></div>
-    <h2>Next run</h2>
-    <p class="hint">The attribute set of the chosen run is carried to step 8, where attributes
-    can be added or taken out and the map trained again.</p>
-    <div class="btnrow"><button class="primary" id="btnRevise">Revise this set on step 8</button></div>
+    <h2>Second map</h2>
+    <p class="hint">The attribute set, map size and window of the chosen run are carried to
+    step 10, where attributes can be added or taken out and a second map trained on the same window.</p>
+    <div class="btnrow"><button class="primary" id="btnRevise">Refine this run on step 10</button></div>
   </aside>
 
   <main class="stage" id="stage">
@@ -169,7 +169,7 @@ function pick(s){
 }
 
 $("runs").addEventListener("click", e => { const b = e.target.closest("[data-run]"); if (b) select(+b.dataset.run); });
-$("btnRevise").addEventListener("click", async () => { await kvSet("somPicks", run().keys); location.href = "8-som.html"; });
+$("btnRevise").addEventListener("click", async () => { await kvSet("refineBase", run().id); await kvSet("refinePicks", run().keys); location.href = "10-refine.html"; });
 window.addEventListener("resize", debounce(() => { drawGlobal(); drawSection(); drawLocal(); }, 250));
 </script>
 <script src="../assets/count.js"></script>

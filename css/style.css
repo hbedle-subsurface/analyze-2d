@@ -112,7 +112,7 @@ main.stage{padding:0}
 .figrow h3,.board-h3{font-family:var(--font-display);font-weight:600;font-size:1.15rem;margin:0 0 4px;color:var(--chalk)}
 .plotbox{background:var(--cream);border-radius:2px;border-bottom:3px solid var(--paper-edge)}
 .plotbox canvas{display:block;width:100%}
-.bars canvas{background:var(--cream);border-radius:2px}
+.bars canvas{display:block;width:100%;background:var(--cream);border-radius:2px}
 table.data{border-collapse:collapse;font-size:.85rem;margin:4px 0;background:var(--cream);color:var(--ink)}
 table.data th,table.data td{border:1px solid var(--paper-edge);padding:3px 8px;text-align:right}
 table.data th{background:var(--paper);font-weight:600;text-align:left}
