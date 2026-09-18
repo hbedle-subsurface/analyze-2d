@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="assets/glossary.css">
+<title>Analyze 2D — attributes and unsupervised classification on a 2D seismic line</title>
+<meta name="description" content="Load a 2D seismic line, condition it, compute attributes, classify them with a self-organizing map and read the result with SHAP, all in the browser. University of Oklahoma / AASPI.">
+</head>
+<body>
+
+<div class="landing">
+  <h2>A 2D seismic line, from SEG-Y to classes</h2>
+  <p class="lede">Open a 2D line, check and condition it, compute seismic attributes,
+  classify them with a self-organizing map, and use SHAP values to see which attributes
+  the classes rest on. Everything is computed in this browser from the file itself.</p>
+
+  <div class="open">
+    <div class="drop" id="drop">
+      <p><b>Open a 2D SEG-Y file</b></p>
+      <p class="hint">Post-stack, one line. Drag the file here or choose it.</p>
+      <p><input type="file" id="fileInput" accept=".sgy,.segy,.SGY,.SEGY"></p>
+      <p class="busy" id="busy" hidden></p>
+      <p class="hint" id="loadErr" hidden></p>
+    </div>
+    <div class="sample">
+      <h3>Sample line: SCAN029, the Netherlands</h3>
+      <p>Pre-stack time migrated full stack from the SCAN geothermal exploration
+      programme, run by EBN and TNO. The line runs about 48 km across the southern
+      Netherlands, from the Someren area in the west to the Californië geothermal
+      wells near Venlo in the east. 2425 traces at 20 m, 2 ms sampling, 0.15 to 3.0 s.</p>
+      <p class="hint">Data from NLOG. The copy here is an interim one, rebuilt from an
+      8-bit display array; data/README.md describes it and how it is replaced.</p>
+      <p><button class="primary" id="btnSample">Open SCAN029 (14 MB)</button></p>
+    </div>
+  </div>
+
+  <div class="steps" id="steps"></div>
+
+  <p class="note" style="margin-top:1.6rem">Each step writes its result to storage in
+  this browser, and the next step starts from it. Steps 3 to 6 can be skipped: a skipped
+  step passes the line through unchanged. Opening a new line clears everything computed
+  from the previous one.</p>
+</div>
+
+<script src="js/store.js"></script>
+<script src="js/segy.js"></script>
+<script src="js/display.js"></script>
+<script src="js/help.js"></script>
+<script src="js/glossary.js"></script>
+<script src="js/common.js"></script>
+<script>
+const SAMPLE = {file: "data/SCAN029_full_stack.sgy", name: "SCAN029 (L2EBN2020ASCAN029)", dx: 20};
+
+(async function init(){
+  await pageShell("index");
+  $("steps").innerHTML = "<h4>The steps</h4>" + STEPS.map(s =>
+    '<a href="pages/' + s.file + '"><span class="n">' + s.n + "</span><h3>" + s.title +
+    "</h3><p>" + s.blurb + "</p></a>").join("");
+  glossaryScan(document.querySelector(".landing"));
+})();
+
+async function openBuffer(ab, name, dx){
+  $("loadErr").hidden = true;
+  setBusy("Reading " + name + "…");
+  await nextFrame();
+  let S;
+  try { S = parseSegy(ab); }
+  catch (e){
+    setBusy("");
+    $("loadErr").hidden = false;
+    $("loadErr").textContent = "That file did not open: " + e.message;
+    return;
+  }
+  setBusy("Storing the line…");
+  await a2ClearAll();
+  const line = {
+    name, nx: S.nx, ns: S.ns, dt: S.dt, delayMs: S.delayMs || 0,
+    dx: S.dist ? null : (dx || null), dist: S.dist ? Array.from(S.dist) : null,
+    step: S.step, ntrFile: S.ntrFile, fmt: S.fmt,
+    textual: S.textual, binary: S.binary, traceRows: S.traceRows,
+    cdp0: S.cdp[0], cdp1: S.cdp[S.nx - 1], opened: Date.now()
+  };
+  await kvSet("line", line);
+  const sec = {data: S.data, nx: S.nx, ns: S.ns, dt: S.dt, j0: 0};
+  await stageSave("raw", sec, {i0: 0});
+  await stageSave("crop", sec, {i0: 0, whole: true});
+  await kvSet("crop", {i0: 0, i1: S.nx - 1, j0: 0, j1: S.ns - 1});
+  location.href = "pages/1-line.html";
+}
+
+$("fileInput").addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  f.arrayBuffer().then(ab => openBuffer(ab, f.name, null));
+});
+const drop = $("drop");
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => {
+  e.preventDefault(); drop.classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (f) f.arrayBuffer().then(ab => openBuffer(ab, f.name, null));
+});
+$("btnSample").addEventListener("click", async () => {
+  setBusy("Downloading SCAN029…");
+  try {
+    const r = await fetch(SAMPLE.file);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    openBuffer(await r.arrayBuffer(), SAMPLE.name, SAMPLE.dx);
+  } catch (e){
+    setBusy("");
+    $("loadErr").hidden = false;
+    $("loadErr").textContent = "The sample could not be downloaded (" + e.message +
+      "). Opened from disk, browsers block this request; the site has to be served, for example with python -m http.server.";
+  }
+});
+</script>
+<script src="assets/count.js"></script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="../assets/glossary.css">
+<title>4. Structure-oriented smoothing — Analyze 2D</title>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>Structure-oriented smoothing<button class="help" data-help="sos">Learn more</button></h2>
+    <label class="toggle"><input type="checkbox" id="apply"> Apply this step</label>
+    <div class="guide"><p>Each sample is averaged along the local reflector dip, measured
+    with the structure tensor. Edge protection holds back the averaging where the section is not layered,
+    which is where faults and terminations are.</p></div>
+    <label>Smoothing length <b><span id="v-len"></span> traces</b></label>
+    <input type="range" id="sosLen" min="1" max="24" step="1" value="7">
+    <label>Dip estimation window <b><span id="v-sig"></span> samples</b></label>
+    <input type="range" id="sosSig" min="0.8" max="8" step="0.1" value="3">
+    <label>Edge protection <b><span id="v-gate"></span></b></label>
+    <input type="range" id="sosGate" min="0" max="6" step="0.1" value="2">
+    <label>Strength <b><span id="v-str"></span></b></label>
+    <input type="range" id="sosStr" min="0" max="1" step="0.01" value="1">
+    <p class="hint" id="sigInfo"></p>
+    <h2>Removed panel</h2>
+    <label>Gain on the removed panel <b><span id="v-remGain"></span>×</b></label>
+    <input type="range" id="remGain" min="1" max="20" step="0.5" value="4">
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="panels" id="panels"></div>
+    <div class="note" id="note"></div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/filterpage.js"></script>
+<script>
+let TENSOR = null, TSIG = -1;
+function tensorFor(input, sig){
+  if (!TENSOR || TSIG !== sig){ TENSOR = computeTensor(input.data, input.nx, input.ns, sig); TSIG = sig; }
+  return TENSOR;
+}
+filterPage({
+  stage: "sos", stepId: "sos",
+  controls: ["sosLen", "sosSig", "sosGate", "sosStr"],
+  delay: 450,
+  defaults(input, band){
+    if (band && (band.fc || band.fpk) > 0){
+      const s = Math.max(1.5, Math.min(6, Math.round(1000 / (band.fc || band.fpk) / (input.dt / 1000) / 2 * 10) / 10));
+      $("sosSig").value = s;
+      $("sigInfo").textContent = "The dip estimation window starts at half a period of the " +
+        (band.fc || band.fpk).toFixed(0) + " Hz center of the band measured on step 2.";
+    }
+  },
+  setParams(p){ $("sosLen").value = p.len; $("sosSig").value = p.sig; $("sosGate").value = p.gate; $("sosStr").value = p.str; },
+  readParams: () => ({len: +$("sosLen").value, sig: +$("sosSig").value, gate: +$("sosGate").value, str: +$("sosStr").value}),
+  syncLabels(){
+    $("v-len").textContent = $("sosLen").value; $("v-sig").textContent = (+$("sosSig").value).toFixed(1);
+    $("v-gate").textContent = (+$("sosGate").value).toFixed(1); $("v-str").textContent = (+$("sosStr").value).toFixed(2);
+  },
+  apply(input, p){
+    const T = tensorFor(input, p.sig);
+    return structureOriented(input.data, input.nx, input.ns, p.len, p.sig, p.gate, p.str, T);
+  },
+  note(fp){
+    if (!fp.on) return "<p>The step is skipped, so the next step works on " + STAGE_NAMES[fp.input.stage] + ".</p>";
+    return "<p>The removed part carries " + fp.pct.toFixed(1) + "% of the input energy. Random noise appears there " +
+      "as speckle. A fault appears as a line of energy that follows the fault plane, and a thin bed that pinches " +
+      "out appears as a short event ending where the bed ends.</p>";
+  }
+});
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

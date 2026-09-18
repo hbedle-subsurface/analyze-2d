@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="../assets/glossary.css">
+<title>6. Detail boost — Analyze 2D</title>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>Detail boost<button class="help" data-help="detail">Learn more</button></h2>
+    <label class="toggle"><input type="checkbox" id="apply"> Apply this step</label>
+    <div class="guide"><p>The section is split into a smooth base, a Gaussian blur of it, and the detail
+    that remains. The output is the base plus the detail multiplied by a gain.</p></div>
+    <label>Base scale <b><span id="v-r"></span> samples</b></label>
+    <input type="range" id="detR" min="1" max="20" step="0.5" value="4">
+    <label>Detail gain <b><span id="v-g"></span>×</b></label>
+    <input type="range" id="detG" min="0" max="6" step="0.1" value="2">
+    <h2>Removed panel</h2>
+    <label>Gain on the removed panel <b><span id="v-remGain"></span>×</b></label>
+    <input type="range" id="remGain" min="1" max="20" step="0.5" value="4">
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="panels" id="panels"></div>
+    <div class="note" id="note"></div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/filterpage.js"></script>
+<script>
+filterPage({
+  stage: "detail", stepId: "detail",
+  controls: ["detR", "detG"],
+  setParams(p){ $("detR").value = p.r; $("detG").value = p.g; },
+  readParams: () => ({r: +$("detR").value, g: +$("detG").value}),
+  syncLabels(){ $("v-r").textContent = (+$("detR").value).toFixed(1); $("v-g").textContent = (+$("detG").value).toFixed(1); },
+  apply: (input, p) => detailBoost(input.data, input.nx, input.ns, p.r, p.g),
+  note(fp){
+    if (!fp.on) return "<p>The step is skipped, so the next step works on " + STAGE_NAMES[fp.input.stage] + ".</p>";
+    const g = +$("detG").value;
+    return "<p>" + (g > 1 ? "With a gain above 1 the step adds energy rather than removing it, so the removed panel " +
+      "holds the extra detail with its sign reversed. " : "") +
+      "The removed part carries " + fp.pct.toFixed(1) + "% of the input energy. Detail boost adds no information: " +
+      "it changes the balance between features larger and smaller than the base scale.</p>";
+  }
+});
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

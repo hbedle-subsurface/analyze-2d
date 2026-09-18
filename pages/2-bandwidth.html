@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="../assets/glossary.css">
+<title>2. Bandwidth — Analyze 2D</title>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>Spectrum<button class="help" data-help="bandwidth">Learn more</button></h2>
+    <div class="guide"><p>The amplitude spectrum is measured in a window that slides down the
+    record. Click the section or move the position slider to pick the window shown in red.</p></div>
+    <label>Window length <b><span id="v-win"></span> ms</b></label>
+    <input type="range" id="win" min="100" max="1000" step="10" value="250">
+    <label>Window position <b><span id="v-pos"></span> s</b></label>
+    <input type="range" id="pos" min="0" max="47" step="1" value="10">
+    <label class="toggle" id="cmpBox" hidden><input type="checkbox" id="cmp"> <span id="cmpLab"></span></label>
+    <h2>Measured</h2>
+    <div id="readout" class="hint"></div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="figrow" style="margin-top:0">
+      <div><h3>Amplitude spectrum</h3><div class="plotbox"><canvas id="spec" style="height:280px"></canvas></div></div>
+      <div><h3>Spectrum down the record</h3><div class="plotbox"><canvas id="tf" style="height:280px"></canvas></div></div>
+    </div>
+    <div class="panels" id="panels" style="margin-top:.9rem"></div>
+    <div class="note" id="note"></div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/spectrum.js"></script>
+<script src="../js/measure.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script>
+let SEC = null, SP = null, LATEST = null, SPL = null;
+/* spectrumOf gives window centers in ms from the first sample of the record; the display uses seconds of two-way time */
+const tS = k => SP.tc[k] / 1000 + (LINE.delayMs || 0) / 1000;
+
+(async function init(){
+  await pageShell("bandwidth");
+  if (!LINE){ emptyState($("stage"), "No line is open."); return; }
+  SEC = sectionOf(await stageLoad("crop"));
+  if (!SEC){ emptyState($("stage"), "The crop has not been stored yet."); return; }
+  const late = sectionOf(await stageInput(null));
+  if (late && late.stage !== "crop" && late.stage !== "raw"){
+    LATEST = late;
+    $("cmpBox").hidden = false;
+    $("cmpLab").textContent = "Compare with " + STAGE_NAMES[late.stage];
+  }
+  displayControls($("side"), drawSection);
+  makePanel($("panels"), "sec", "The cropped line", {height: 300});
+  attachReadout("sec");
+  $("sec-frame").classList.add("crosshair");
+  $("sec-frame").addEventListener("click", ev => {
+    const s = frameToSample("sec", ev);
+    if (!s || !SP) return;
+    const t = secAt(SEC.j0 + s.j);
+    let best = 0;
+    SP.tc.forEach((c, k) => { if (Math.abs(tS(k) - t) < Math.abs(tS(best) - t)) best = k; });
+    $("pos").value = best; drawAll();
+  });
+  $("where").innerHTML = "Measured on <b>" + STAGE_NAMES.crop + "</b>";
+  measure();
+  $("next").innerHTML = nextLink("bandwidth");
+  glossaryScan(document.body);
+})();
+
+function measure(){
+  const w = +$("win").value;
+  SP = spectrumOf(SEC, w);
+  SPL = LATEST && $("cmp").checked ? spectrumOf(LATEST, w) : null;
+  $("pos").max = SP.rows - 1;
+  if (+$("pos").value > SP.rows - 1) $("pos").value = Math.floor(SP.rows / 3);
+  const s = SP.stats;
+  kvSet("band", {fpk: s.fpk, fc: 0.5 * (s.lo6 + s.hi6), lo6: s.lo6, hi6: s.hi6, lo20: s.lo20, hi20: s.hi20,
+                 nyq: SP.nyq, winMs: SP.winMs, ts: Date.now()}).catch(() => {});
+  drawAll();
+}
+
+function drawAll(){
+  const k = +$("pos").value;
+  $("v-win").textContent = SP.winMs.toFixed(0);
+  $("v-pos").textContent = fmt(tS(k), 2);
+  const fmax = fAxisMax(SEC.dt);
+  const f = Array.from({length: SP.whole.length}, (_, q) => q * SP.df);
+
+  // amplitude spectrum, fixed axes
+  const P = plotFrame($("spec"), [0, fmax], [-60, 0], "frequency (Hz)", "amplitude (dB below peak)");
+  if (P){
+    const s = SP.stats, r = SP.rowStats[k];
+    P.ctx.fillStyle = "rgba(92,102,112,0.12)";
+    P.ctx.fillRect(P.X(s.lo6), P.T, P.X(s.hi6) - P.X(s.lo6), P.h - P.T - P.B);
+    plotLine(P, f, specDb(SP.whole), "#16191C", 1.8);
+    plotLine(P, f, specDb(SP.tf[k]), "#841617", 1.6);
+    if (SPL) plotLine(P, f, specDb(SPL.whole), "#0B7285", 1.6, [5, 3]);
+    const ctx = P.ctx;
+    ctx.font = "10px 'IBM Plex Sans', system-ui"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillStyle = "#16191C"; ctx.fillText("whole crop", P.w - P.R - 150, P.T + 6);
+    ctx.fillStyle = "#841617"; ctx.fillText("window at " + fmt(tS(k), 2) + " s", P.w - P.R - 150, P.T + 20);
+    if (SPL){ ctx.fillStyle = "#0B7285"; ctx.fillText(STAGE_NAMES[LATEST.stage].replace("the ", ""), P.w - P.R - 150, P.T + 34); }
+  }
+
+  // time-frequency image, fixed axes: frequency across, record time down
+  const cv = $("tf");
+  const G = plotFrame(cv, [0, fmax], [tS(SP.rows - 1), tS(0)], "frequency (Hz)", "window center (s)");
+  if (G){
+    let mx = 0;
+    for (const a of SP.tf) for (let q = 1; q < a.length; q++) if (a[q] > mx) mx = a[q];
+    const lut = buildLUT("magma");
+    const W = Math.max(1, Math.round(G.w - G.L - G.R)), H = Math.max(1, Math.round(G.h - G.T - G.B));
+    const img = G.ctx.createImageData(W, H);
+    for (let y = 0; y < H; y++){
+      const row = Math.min(SP.rows - 1, Math.floor(y / H * SP.rows));
+      for (let x = 0; x < W; x++){
+        const q = Math.min(SP.whole.length - 1, Math.round(x / W * fmax / SP.df));
+        const db = 20 * Math.log10((SP.tf[row][q] || 1e-20) / mx);
+        const t = Math.max(0, Math.min(511, Math.round((db + 60) / 60 * 511)));
+        const o = (y * W + x) * 4;
+        img.data[o] = lut[t*3]; img.data[o+1] = lut[t*3+1]; img.data[o+2] = lut[t*3+2]; img.data[o+3] = 255;
+      }
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const tmp = document.createElement("canvas"); tmp.width = W; tmp.height = H;
+    tmp.getContext("2d").putImageData(img, 0, 0);
+    G.ctx.drawImage(tmp, G.L, G.T, W, H);
+    // 6 dB band edges of each window
+    const ys = SP.tc.map((_, q) => tS(q)), lo = SP.rowStats.map(r => r.lo6), hi = SP.rowStats.map(r => r.hi6);
+    const pl = (xs, yv) => { G.ctx.beginPath(); xs.forEach((x, q) => { const X = G.X(x), Y = G.Y(yv[q]); q ? G.ctx.lineTo(X, Y) : G.ctx.moveTo(X, Y); }); G.ctx.stroke(); };
+    G.ctx.strokeStyle = "#ffffff"; G.ctx.lineWidth = 1.2; G.ctx.setLineDash([4, 3]);
+    pl(lo, ys); pl(hi, ys);
+    G.ctx.setLineDash([]); G.ctx.strokeStyle = "#841617"; G.ctx.lineWidth = 2;
+    G.ctx.beginPath(); G.ctx.moveTo(G.L, G.Y(tS(k))); G.ctx.lineTo(G.w - G.R, G.Y(tS(k))); G.ctx.stroke();
+  }
+
+  const s = SP.stats, first = SP.rowStats[0], last = SP.rowStats[SP.rows - 1], r = SP.rowStats[k];
+  $("readout").innerHTML =
+    "Peak frequency, whole crop: <b>" + fmt(s.fpk, 1) + " Hz</b><br>" +
+    "Band within 6 dB of the peak: <b>" + fmt(s.lo6, 1) + "–" + fmt(s.hi6, 1) + " Hz</b><br>" +
+    "Center of the 6 dB band: <b>" + fmt(0.5 * (s.lo6 + s.hi6), 1) + " Hz</b><br>" +
+    "Band within 20 dB: " + fmt(s.lo20, 1) + "–" + fmt(s.hi20, 1) + " Hz<br>" +
+    "Window at " + fmt(tS(k), 2) + " s: peak " + fmt(r.fpk, 1) + " Hz, 6 dB band " + fmt(r.lo6, 1) + "–" + fmt(r.hi6, 1) + " Hz<br>" +
+    "Nyquist frequency: " + fmt(SP.nyq, 0) + " Hz";
+  const fc = 0.5 * (s.lo6 + s.hi6), cyc = 1000 / Math.max(1, fc);
+  $("note").innerHTML =
+    "<p>From the top window to the bottom one the upper 6 dB edge moves from " + fmt(first.hi6, 1) +
+    " to " + fmt(last.hi6, 1) + " Hz. The center of the 6 dB band is " + fmt(fc, 1) + " Hz, with a period of " + fmt(cyc, 0) +
+    " ms. On a broad, flat-topped spectrum the peak can sit far from the center, so the center is the value carried forward.</p>" +
+    "<p>Later steps start from this measurement: the f-k pass band from the 20 dB band, the balancing taper " +
+    "from the same band, and the attribute windows as 1.5 and 3 periods of the band center (" +
+    fmt(1.5 * cyc, 0) + " and " + fmt(3 * cyc, 0) + " ms).</p>";
+  drawSection();
+}
+
+function drawSection(){
+  if (!SEC) return;
+  drawSeis("sec", SEC, SEC.data);
+  if (!SP) return;
+  const k = +$("pos").value, half = SP.winMs / 2000;
+  const toJ = t => (t - secAt(SEC.j0)) / (SEC.dt * 1e-6);
+  const cv = $("sec-ovl"), {ctx, w, h} = fitCanvas(cv);
+  const y0 = toJ(tS(k) - half) / (SEC.ns - 1) * h, y1 = toJ(tS(k) + half) / (SEC.ns - 1) * h;
+  ctx.fillStyle = "rgba(132,22,23,0.18)"; ctx.fillRect(0, y0, w, y1 - y0);
+  ctx.strokeStyle = "#841617"; ctx.lineWidth = 1.5;
+  ctx.strokeRect(0.5, y0 + 0.5, w - 1, y1 - y0);
+}
+
+$("win").addEventListener("input", debounce(measure, 150));
+$("pos").addEventListener("input", drawAll);
+$("cmp").addEventListener("change", measure);
+window.addEventListener("resize", debounce(drawAll, 200));
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="../assets/glossary.css">
+<title>8. Self-organizing map — Analyze 2D</title>
+<style>
+.somrow{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:.9rem;align-items:start}
+.key canvas{width:100%;display:block;cursor:pointer;border:1px solid var(--rule)}
+.key p{font-size:.74rem;color:var(--slate);margin:.3rem 0}
+@media (max-width:1000px){.somrow{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>Self-organizing map<button class="help" data-help="som">Learn more</button></h2>
+    <div class="guide"><p>Choose the attributes and the size of the map, then train it.
+    Every run is kept, so two runs can be compared below the section and each can be
+    read on the SHAP page.</p></div>
+    <div class="checks" id="checks"></div>
+    <div class="btnrow"><button id="btnFromAttr">Same as step 7</button><button id="btnNone">Clear</button></div>
+
+    <label>Neurons <b><span id="v-side"></span></b></label>
+    <input type="range" id="somSide" min="3" max="12" step="1" value="6">
+
+    <h2>Facies window<button class="help" data-help="facies">Learn more</button></h2>
+    <label>Traces <b><span id="v-ftr"></span></b></label>
+    <input type="range" id="ftr" min="1" max="21" step="2" value="7">
+    <label>Time <b><span id="v-fms"></span> ms</b></label>
+    <input type="range" id="fms" min="0" max="200" step="2" value="60">
+    <p class="hint">Attributes that describe a level are averaged over this window; attributes
+    that oscillate with the wavelet are used as computed.</p>
+
+    <h2>Analysis window</h2>
+    <p class="hint" id="winText"></p>
+    <div class="btnrow"><button id="btnWhole">Whole section</button></div>
+    <p class="hint">Drag a box on the section to train and classify inside it only.</p>
+
+    <div class="btnrow"><button class="primary" id="btnTrain">Train the map</button></div>
+    <div class="progress" id="prog" hidden><span></span></div>
+    <p class="hint" id="progText"></p>
+
+    <h2>Runs</h2>
+    <div class="runs" id="runs"></div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="somrow">
+      <div class="panels" id="panels"></div>
+      <div class="key">
+        <canvas id="grid"></canvas>
+        <p>Each square is one neuron; the dot size gives how many samples it took. Click a neuron to hide
+        its class, shift-click to show it alone.</p>
+        <label class="hint">Class opacity <input type="range" id="alpha" min="0.2" max="1" step="0.05" value="0.85"></label>
+      </div>
+    </div>
+    <div class="note" id="note"></div>
+    <div class="btnrow" id="nullRow" hidden><button id="btnNull">Test against a phase-randomized null</button></div>
+
+    <h3 style="font-family:var(--display);font-size:.9rem;margin:1.4rem 0 .3rem">Two runs on the same section</h3>
+    <div class="row2" style="max-width:520px">
+      <label>Upper<select id="cmpA"></select></label>
+      <label>Lower<select id="cmpB"></select></label>
+    </div>
+    <div class="panels" id="cmpPanels"></div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/attributes.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/somview.js"></script>
+<script>
+let SEC = null, RUNS = [], CUR = -1, HIDDEN = new Set(), WIN = null, worker = null, BUSY = false;
+
+(async function init(){
+  await pageShell("som");
+  if (!LINE){ emptyState($("stage"), "No line is open."); return; }
+  SEC = sectionOf(await stageInput(null));
+  if (!SEC || SEC.stage === "raw"){ emptyState($("stage"), "The crop has not been stored yet."); return; }
+  $("where").innerHTML = "Classifying <b>" + STAGE_NAMES[SEC.stage] + "</b>";
+  $("checks").innerHTML = "<h4>Attributes</h4>" + SOM_KEYS.map(k =>
+    '<label><input type="checkbox" value="' + k + '"> ' + attrName(k) +
+    (k === "amp" ? "" : '<button class="help" data-help="' + k + '" type="button">?</button>') + "</label>").join("");
+  const picks = (await kvGet("somPicks")) || ((await kvGet("attrSel")) || ["avt", "rms", "dip", "coherence", "avgfreq", "avgband"]);
+  setPicks(picks);
+  const band = await kvGet("band");
+  const fac = await kvGet("somFacies");
+  if (fac){ $("ftr").value = fac.tr; $("fms").value = fac.ms; $("somSide").value = fac.side || 6; }
+  else if (band && (band.fc || band.fpk) > 0) $("fms").value = Math.min(200, Math.round(2000 / (band.fc || band.fpk) / 2) * 2);
+  RUNS = (await kvGet("runs")) || [];
+  WIN = {i0: 0, i1: SEC.nx - 1, j0: 0, j1: SEC.ns - 1};
+  syncLabels();
+  displayControls($("side"), drawAll);
+  makePanel($("panels"), "pCls", "Classes over the section", {height: 380});
+  attachReadout("pCls");
+  enableBox("pCls", (box, click) => { if (box){ WIN = box; syncLabels(); drawAll(); } });
+  makePanel($("cmpPanels"), "pA", "Upper run", {height: 240});
+  makePanel($("cmpPanels"), "pB", "Lower run", {height: 240});
+  ["pA", "pB"].forEach(id => { attachReadout(id); linkPair(id); });
+  CUR = RUNS.length - 1;
+  runsList();
+  drawAll();
+  $("next").innerHTML = nextLink("som");
+  glossaryScan(document.querySelector("aside"));
+})();
+
+function picks(){ return [...document.querySelectorAll("#checks input:checked")].map(x => x.value); }
+function setPicks(keys){ document.querySelectorAll("#checks input").forEach(x => { x.checked = keys.includes(x.value); }); }
+function syncLabels(){
+  const s = +$("somSide").value;
+  $("v-side").textContent = s + " × " + s + " = " + s * s;
+  $("v-ftr").textContent = $("ftr").value + " (" + fmt(($("ftr").value - 1) * ((LINE && LINE.dist ? LINE.dist[LINE.nx-1] / (LINE.nx - 1) : (LINE && LINE.dx) || 0)), 0) + " m)";
+  $("v-fms").textContent = $("fms").value;
+  if (SEC && WIN) $("winText").textContent = fmt(kmAt(SEC.i0 + WIN.i0), 1) + " to " + fmt(kmAt(SEC.i0 + WIN.i1), 1) + " km, " +
+    fmt(secAt(SEC.j0 + WIN.j0), 2) + " to " + fmt(secAt(SEC.j0 + WIN.j1), 2) + " s";
+}
+
+function run(){ return RUNS[CUR] || null; }
+
+function drawAll(){
+  if (!SEC) return;
+  drawSeis("pCls", SEC, SEC.data);
+  const r = run();
+  drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN);
+  const whole = WIN.i0 === 0 && WIN.j0 === 0 && WIN.i1 === SEC.nx - 1 && WIN.j1 === SEC.ns - 1;
+  drawBoxOverlay("pCls", whole ? null : WIN, SEC, false);
+  PANEL_DATA.pCls.extra = s => {
+    if (!r) return "";
+    const gi = s.i - r.win.i0, gj = Math.round((s.j - r.win.j0) / r.tstep);
+    if (gi < 0 || gi >= r.gnx || gj < 0 || gj >= r.gnt) return "";
+    const k = r.bmu[gi * r.gnt + gj];
+    return ", neuron row " + (Math.floor(k / r.side) + 1) + ", column " + (k % r.side + 1);
+  };
+  $("pCls-title").textContent = r ? runLabel(r) : "Seismic amplitude, no map trained yet";
+  drawGrid($("grid"), r, HIDDEN);
+  noteText();
+  drawCompare();
+}
+
+function noteText(){
+  const r = run();
+  if (!r){ $("note").innerHTML = "<p>No map has been trained on this section yet.</p>"; $("nullRow").hidden = true; return; }
+  let s = "<p>" + r.keys.map(attrName).join(", ") + ". Facies window " + r.facies.tr + " traces by " + r.facies.ms + " ms. ";
+  const shown = HIDDEN.size ? " The visible classes cover " + (100 * r.hits.reduce((a, h, k) => a + (HIDDEN.has(k) ? 0 : h), 0)).toFixed(0) + "% of the window." : "";
+  s += "Neighboring traces share a class " + (100 * r.agree).toFixed(1) + "% of the time." + shown + "</p>";
+  if (r.nullAgree !== undefined && r.nullAgree !== null)
+    s += "<p>With the phase of every trace randomized, the same attributes and map share a class across neighboring traces " +
+      (100 * r.nullAgree).toFixed(1) + "% of the time, a ratio of " + (r.agree / Math.max(1e-6, r.nullAgree)).toFixed(1) +
+      ". A ratio near 1 means the classes are no more laterally organized than they are once the lateral information is removed.</p>";
+  s += "<p>" + redundancyText(r) + "</p>";
+  if (r.stage !== SEC.stage || r.stageTs !== SEC.ts)
+    s += '<p class="hint">This run was trained before the section was last changed, so it is drawn over a section it was not computed from.</p>';
+  $("note").innerHTML = s;
+  $("nullRow").hidden = !(worker && r.live);
+}
+
+function runsList(){
+  const box = $("runs");
+  if (!RUNS.length){ box.innerHTML = '<p class="hint">No runs yet.</p>'; }
+  else box.innerHTML = RUNS.map((r, i) => {
+    const top = r.importance ? r.keys.map((k, j) => [k, r.importance[j]]).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => attrShort(k)).join(", ") : "SHAP not computed";
+    return '<button data-run="' + i + '" aria-pressed="' + (i === CUR) + '">' + runLabel(r) +
+      "<small>" + r.keys.map(attrShort).join(", ") + "</small><small>Largest SHAP: " + top + "</small></button>";
+  }).join("") + '<button id="btnClearRuns" style="margin-top:.3rem">Delete all runs</button>';
+  const opts = RUNS.map((r, i) => '<option value="' + i + '">' + runLabel(r) + "</option>").join("");
+  const a = $("cmpA").value, b = $("cmpB").value;
+  $("cmpA").innerHTML = opts; $("cmpB").innerHTML = opts;
+  $("cmpA").value = a !== "" && a < RUNS.length ? a : Math.max(0, RUNS.length - 2);
+  $("cmpB").value = b !== "" && b < RUNS.length ? b : Math.max(0, RUNS.length - 1);
+}
+
+function drawCompare(){
+  const A = RUNS[+$("cmpA").value], B = RUNS[+$("cmpB").value];
+  [["pA", A], ["pB", B]].forEach(([id, r]) => {
+    drawSeis(id, SEC, SEC.data);
+    drawClasses(id, SEC, r, +$("alpha").value, null);
+    $(id + "-title").textContent = r ? runLabel(r) : "No run";
+    $(id + "-note").textContent = r ? r.keys.map(attrShort).join(", ") : "";
+  });
+}
+
+function linkPair(id){
+  const fr = $(id + "-frame");
+  fr.addEventListener("mousemove", ev => {
+    const r = fr.getBoundingClientRect(), u = (ev.clientX - r.left) / r.width, v = (ev.clientY - r.top) / r.height;
+    ["pA", "pB"].forEach(k => { const {ctx, w, h} = fitCanvas($(k + "-ovl")); ctx.strokeStyle = "rgba(22,25,28,0.9)";
+      ctx.beginPath(); ctx.moveTo(u * w, 0); ctx.lineTo(u * w, h); ctx.moveTo(0, v * h); ctx.lineTo(w, v * h); ctx.stroke(); });
+  });
+  fr.addEventListener("mouseleave", () => ["pA", "pB"].forEach(k => fitCanvas($(k + "-ovl"))));
+}
+
+async function train(){
+  if (BUSY) return;
+  const keys = picks();
+  if (keys.length < 2){ $("progText").textContent = "Choose at least two attributes."; return; }
+  const side = +$("somSide").value, facies = {tr: +$("ftr").value, ms: +$("fms").value};
+  await kvSet("somPicks", keys);
+  await kvSet("somFacies", {...facies, side});
+  const ap = (await kvGet("attrParams")) || {attrWin: 20, attrWinI: 100, attrFc: 30, tSig: 3, attrDl: 7};
+  const p = {...ap, relAz: 315, relAlt: 30, relSurf: "env", relSm: 0.4, relZ: 1, cmap: "gray"};
+  const tstep = Math.max(1, Math.round(4000 / SEC.dt));      // about 4 ms between grid rows
+  const win = {...WIN};
+  BUSY = true; $("btnTrain").disabled = true; $("prog").hidden = false;
+  if (worker) worker.terminate();
+  worker = new Worker("../js/som-worker.js");
+  const rec = {id: Date.now(), n: (RUNS.length ? RUNS[RUNS.length - 1].n : 0) + 1, keys, side, facies, win, tstep,
+               params: p, stage: SEC.stage, stageTs: SEC.ts, seed: 7, importance: null, nullAgree: null};
+  worker.onmessage = async e => {
+    const m = e.data;
+    if (m.type === "progress"){ $("prog").firstElementChild.style.width = Math.round(m.frac * 100) + "%"; $("progText").textContent = m.stage; }
+    if (m.type === "error"){ $("progText").textContent = "The run failed: " + m.message; BUSY = false; $("btnTrain").disabled = false; }
+    if (m.type === "map"){
+      Object.assign(rec, {bmu: m.bmu, hits: m.hits, corr: m.corr, W: m.W, mean: m.mean, sd: m.sd, tau: m.tau,
+                          agree: m.agree, gnx: m.gnx, gnt: m.gnt, live: true});
+      RUNS.forEach(r => r.live = false);
+      RUNS.push(rec); CUR = RUNS.length - 1; HIDDEN = new Set();
+      runsList(); drawAll();
+      $("progText").textContent = "Map trained. Computing SHAP values…";
+    }
+    if (m.type === "importance"){
+      rec.importance = m.importance;
+      await saveRuns();
+      BUSY = false; $("btnTrain").disabled = false; $("prog").hidden = true;
+      $("progText").textContent = "Done. The run can be read on the SHAP page.";
+      runsList();
+    }
+    if (m.type === "null"){
+      rec.nullAgree = m.agree; await saveRuns();
+      $("prog").hidden = true; $("progText").textContent = ""; $("btnNull").disabled = false;
+      drawAll();
+    }
+  };
+  worker.postMessage({type: "run", section: {data: SEC.data, nx: SEC.nx, ns: SEC.ns, dt: SEC.dt},
+                      keys, params: p, facies, win, tstep, side, seed: 7});
+}
+
+async function saveRuns(){
+  // runs are kept for the SHAP page; the live flag belongs to this page only
+  await kvSet("runs", RUNS.map(r => { const c = {...r}; delete c.live; return c; }));
+}
+
+$("btnTrain").addEventListener("click", train);
+$("btnNull").addEventListener("click", () => {
+  const r = run(); if (!r || !worker || !r.live) return;
+  $("btnNull").disabled = true; $("prog").hidden = false;
+  worker.postMessage({type: "null"});
+});
+$("btnWhole").addEventListener("click", () => { WIN = {i0: 0, i1: SEC.nx - 1, j0: 0, j1: SEC.ns - 1}; syncLabels(); drawAll(); });
+$("btnFromAttr").addEventListener("click", async () => setPicks(((await kvGet("attrSel")) || []).filter(k => SOM_KEYS.includes(k))));
+$("btnNone").addEventListener("click", () => setPicks([]));
+["somSide", "ftr", "fms"].forEach(k => $(k).addEventListener("input", syncLabels));
+$("alpha").addEventListener("input", () => { const r = run(); drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN); drawCompare(); });
+$("cmpA").addEventListener("change", drawCompare);
+$("cmpB").addEventListener("change", drawCompare);
+$("runs").addEventListener("click", async e => {
+  if (e.target.id === "btnClearRuns"){ RUNS = []; CUR = -1; await saveRuns(); runsList(); drawAll(); return; }
+  const b = e.target.closest("[data-run]"); if (!b) return;
+  CUR = +b.dataset.run; HIDDEN = new Set(); runsList(); drawAll();
+});
+$("grid").addEventListener("click", ev => {
+  const r = run(); if (!r) return;
+  const k = gridHit($("grid"), r, ev); if (k < 0) return;
+  if (ev.shiftKey){
+    const solo = HIDDEN.size === r.side * r.side - 1 && !HIDDEN.has(k);
+    HIDDEN = new Set(); if (!solo) for (let q = 0; q < r.side * r.side; q++) if (q !== k) HIDDEN.add(q);
+  } else if (HIDDEN.has(k)) HIDDEN.delete(k); else HIDDEN.add(k);
+  drawClasses("pCls", SEC, r, +$("alpha").value, HIDDEN); drawGrid($("grid"), r, HIDDEN); noteText();
+});
+window.addEventListener("resize", debounce(drawAll, 250));
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>
