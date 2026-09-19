@@ -86,7 +86,6 @@ const GROUPS = [
   ["Display", ["relief", "reliefrgb"]]
 ];
 const DEFAULT_SET = ["avt", "rms", "dip", "coherence", "avgfreq", "avgband"];
-const STRIPE_LIMIT = 0.80;
 let SEC = null, SPEC = null, TENSOR = null, TSIG = -1, SHOWN = [], PIDS = [];
 
 let RELZ_TOUCHED = false, CMAPS_SET = {};
@@ -251,17 +250,59 @@ function correlation(){
 /* Lateral continuity: the correlation between neighboring traces. Most of the
    frequency and phase attributes are computed one trace at a time, so low
    values there come from the input rather than from the attribute. */
+/* Stripes are lateral changes that persist down the trace. For each attribute
+   the correlation between neighboring traces is measured twice, after clipping
+   to the 1st-99th percentile so that a few spikes (instantaneous frequency has
+   many) cannot decide it: once as computed, and once after averaging each trace
+   down over the interval window. Trace-to-trace noise that changes with time
+   averages out, so the second figure rises. A stripe is the same on every
+   sample of a trace, so it survives the averaging and the figure does not
+   rise. On SCAN029 with a random gain of 0.6 to 1.4 put on every trace, the
+   envelope reads 0.84 before and 0.84 after; on the line as it is, 0.94 and
+   0.98. Wrapped and oscillating phase attributes are left out, since averaging
+   them down the trace takes them toward zero whatever their continuity. */
+const STRIPE_SKIP = ["insphase", "cosphase", "unwrap", "wavphase"];
+function clipTo(a){
+  const n = a.length, step = Math.max(1, Math.floor(n / 200000)), s = [];
+  for (let k = 0; k < n; k += step) if (isFinite(a[k])) s.push(a[k]);
+  s.sort((x, y) => x - y);
+  const lo = s[Math.floor(s.length * 0.01)], hi = s[Math.floor(s.length * 0.99)];
+  const c = new Float32Array(n);
+  for (let k = 0; k < n; k++){ const v = isFinite(a[k]) ? a[k] : 0; c[k] = v < lo ? lo : (v > hi ? hi : v); }
+  return c;
+}
+function downAverage(a, nx, ns, h){
+  const o = new Float32Array(a.length);
+  for (let i = 0; i < nx; i++){
+    const b = i * ns; let acc = 0, c = 0;
+    for (let j = 0; j <= Math.min(ns - 1, h); j++){ acc += a[b + j]; c++; }
+    for (let j = 0; j < ns; j++){
+      o[b + j] = acc / c;
+      const ad = j + h + 1, sb = j - h;
+      if (ad < ns){ acc += a[b + ad]; c++; }
+      if (sb >= 0){ acc -= a[b + sb]; c--; }
+    }
+  }
+  return o;
+}
 function striping(){
+  const h = Math.max(2, Math.round(+$("attrWinI").value / 2 / (SEC.dt / 1000)));
   const bad = [];
-  for (const m of SHOWN){ if (!m.a) continue; const rx = lateralContinuity(m.a, SEC.nx, SEC.ns); if (rx !== null && rx < STRIPE_LIMIT) bad.push([m, rx]); }
+  for (const m of SHOWN){
+    if (!m.a || STRIPE_SKIP.includes(m.key)) continue;
+    const c = clipTo(m.a);
+    const r0 = lateralContinuity(c, SEC.nx, SEC.ns), r1 = lateralContinuity(downAverage(c, SEC.nx, SEC.ns, h), SEC.nx, SEC.ns);
+    if (r0 === null || r1 === null) continue;
+    m.stripe = [r0, r1];
+    if (r1 < 0.9 && r1 - r0 < 0.03) bad.push([m, r0, r1]);
+  }
   if (!bad.length){ $("stripe").hidden = true; return; }
-  bad.sort((a, b) => a[1] - b[1]);
-  const oneTrace = bad.some(([m]) => ["avgfreq","avgband","insfreq","insphase","cosphase","unwrap","wavfreq","wavphase"].includes(m.key));
   $("stripe").hidden = false;
   $("stripe").innerHTML = "<h3>These attributes are striped<button class=\"help\" data-help=\"stripe\">Learn more</button></h3>" +
-    "<p>Neighboring traces correlate at " + bad.map(([m, r]) => m.title.toLowerCase() + " <b>" + r.toFixed(2) + "</b>").join(", ") +
-    ", below " + STRIPE_LIMIT.toFixed(2) + ". Vertical stripes of this kind carry into the self-organizing map as classes that change from trace to trace. " +
-    (oneTrace ? "The frequency and phase attributes contain no lateral operator, so their continuity comes entirely from the input. " : "") +
+    "<p>Correlation between neighboring traces, as computed and after averaging each trace down over the " + $("attrWinI").value +
+    " ms interval window: " + bad.map(([m, a, b]) => m.title.toLowerCase() + " <b>" + a.toFixed(2) + "</b> and <b>" + b.toFixed(2) + "</b>").join(", ") +
+    ". The figure stays below 0.9 and does not rise with the averaging, so the trace-to-trace changes persist down the traces, which is what a " +
+    "vertical stripe is. Stripes carry into the self-organizing map as classes that change from trace to trace. " +
     "The f-k filter (step 3) and structure-oriented smoothing (step 4) both add lateral continuity to the input, " +
     "and their removed panels show the energy each takes out.</p>" +
     '<p><a href="3-fk.html">Step 3: f-k filter</a> &nbsp; <a href="4-sos.html">Step 4: structure-oriented smoothing</a></p>';
