@@ -78,18 +78,20 @@
 <script src="../js/spectrum.js"></script>
 <script src="../js/display.js"></script>
 <script src="../js/attributes.js"></script>
+<script src="../js/attributes-extra.js"></script>
 <script src="../js/help.js"></script>
 <script src="../js/glossary.js"></script>
 <script src="../js/common.js"></script>
 <script>
 const GROUPS = [
   ["Amplitude", ["envelope", "rms", "sweetness", "tke", "tkv", "avt", "rai"]],
-  ["Phase and frequency", ["insphase", "cosphase", "unwrap", "insfreq", "wavfreq", "wavphase", "avgfreq", "avgband", "band", "rgb"]],
-  ["Geometric", ["dip", "linearity", "coherence"]],
+  ["Phase and frequency", ["insphase", "cosphase", "unwrap", "insfreq", "wavfreq", "wavphase", "avgfreq", "avgband", "band", "rgb",
+                           "peakfreq", "peakmag", "specbw", "specslope", "specrough"]],
+  ["Geometric", ["dip", "linearity", "coherence", "ers", "totenergy", "cohenergy", "nonpar"]],
   ["Display", ["relief", "reliefrgb"]]
 ];
 const DEFAULT_SET = ["avt", "rms", "dip", "coherence", "avgfreq", "avgband"];
-const TENSOR_KEYS = ["dip", "linearity", "coherence"];
+const TENSOR_KEYS = ["dip", "linearity", "coherence", "ers", "totenergy", "cohenergy", "nonpar"];
 let SEC = null, SPEC = null, TENSOR = null, TSIG = -1, SHOWN = [], PIDS = [];
 
 let RELZ_TOUCHED = false, CMAPS_SET = {};

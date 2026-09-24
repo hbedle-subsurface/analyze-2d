@@ -19,7 +19,8 @@ function neuronColors(side){
 
 const SOM_KEYS = ["amp", "envelope", "rms", "sweetness", "tke", "tkv", "avt", "rai",
                   "insphase", "cosphase", "insfreq", "wavfreq", "wavphase", "avgfreq", "avgband", "band",
-                  "dip", "linearity", "coherence"];
+                  "dip", "linearity", "coherence", "ers", "totenergy", "cohenergy", "nonpar",
+                  "peakfreq", "peakmag", "specbw", "specslope", "specrough"];
 function attrName(k){ return k === "amp" ? "Seismic amplitude" : ATTR_META[k].n; }
 function attrShort(k){ return k === "amp" ? "amp" : ATTR_META[k].s; }
 

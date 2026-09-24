@@ -29,10 +29,12 @@
    relationship between neighboring traces. The map is retrained on that, and
    lateral class agreement is compared with the real run. */
 "use strict";
-importScripts("dsp.js", "spectrum.js", "display.js", "attributes.js", "som.js");
+importScripts("dsp.js", "spectrum.js", "display.js", "attributes.js", "attributes-extra.js", "som.js");
 
 const SMOOTHED = new Set(["envelope", "rms", "sweetness", "tke", "insfreq", "wavfreq", "avgfreq",
-                          "avgband", "band", "dip", "linearity", "coherence"]);
+                          "avgband", "band", "dip", "linearity", "coherence",
+                          "ers", "totenergy", "cohenergy", "nonpar",
+                          "peakfreq", "peakmag", "specbw", "specslope", "specrough"]);
 let S = null;      // state of the current run
 
 function rng(seed){ // mulberry32, so the same settings give the same result
@@ -88,7 +90,8 @@ function boxAlong(a, nx, ns, half, alongX){
 function buildFeatures(m){
   const {section: sec, keys, params: p, facies, win, tstep} = m;
   const {nx, ns, dt} = sec;
-  const needT = keys.some(k => ["dip", "linearity", "coherence"].includes(k));
+  const needT = keys.some(k => ["dip", "linearity", "coherence",
+                                                "ers", "totenergy", "cohenergy", "nonpar"].includes(k));
   let tensor = null;
   if (needT){ post("Structure tensor", 0); tensor = computeTensor(sec.data, nx, ns, p.tSig); }
   const C = attrCache(sec.data, nx, ns, dt, tensor);

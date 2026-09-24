@@ -408,7 +408,12 @@ const ATTR_META = {
   rai:{n:"Relative acoustic impedance",s:"RAI"}, dip:{n:"Apparent dip",s:"dip"},
   linearity:{n:"Linearity",s:"linear"},   coherence:{n:"In-line coherence",s:"coher"},
   band:{n:"Spectral band",s:"band"},      rgb:{n:"Three-band RGB blend",s:"RGB"},
-  relief:{n:"Relief shading",s:"relief"}, reliefrgb:{n:"Relief over amplitude",s:"rel+amp"}
+  relief:{n:"Relief shading",s:"relief"}, reliefrgb:{n:"Relief over amplitude",s:"rel+amp"},
+  ers:{n:"Energy ratio similarity",s:"ERS"}, totenergy:{n:"Total energy",s:"tot E"},
+  cohenergy:{n:"Coherent energy",s:"coh E"}, nonpar:{n:"Nonparallelism",s:"nonpar"},
+  peakfreq:{n:"Peak frequency",s:"pk freq"}, peakmag:{n:"Peak magnitude",s:"pk mag"},
+  specbw:{n:"Spectral bandwidth",s:"spec bw"}, specslope:{n:"Spectral slope",s:"slope"},
+  specrough:{n:"Spectral roughness",s:"rough"}
 };
 
 const CBLAB = {envelope:"amplitude", cosphase:"cos phase", insfreq:"Hz",
@@ -416,7 +421,10 @@ const CBLAB = {envelope:"amplitude", cosphase:"cos phase", insfreq:"Hz",
                sweetness:"sweetness", band:"amplitude", rms:"amplitude",
                rai:"impedance", tke:"energy", tkv:"variation", avt:"AVT",
                insphase:"radians", unwrap:"radians", wavfreq:"Hz",
-               wavphase:"radians", avgfreq:"Hz", avgband:"Hz"};
+               wavphase:"radians", avgfreq:"Hz", avgband:"Hz",
+               ers:"ratio", totenergy:"energy", cohenergy:"energy",
+               nonpar:"samples/trace", peakfreq:"Hz", peakmag:"amplitude",
+               specbw:"Hz", specslope:"dB/Hz", specrough:"dB"};
 
 /* The intermediates the attributes share, built once over whichever section is
    being worked on. The section and its structure tensor are carried on the
@@ -456,6 +464,26 @@ function attrCache(d, nx, ns, dt, tensor){
     },
     get liveFrac(){ this.live; return c._liveN / (nx*ns); },
     get rate(){ return c._r || (c._r = attrPhaseRate(this.A, this.env, nx, ns, dts)); },
+    /* One filter bank serves the peak, width, slope and roughness of the local
+       spectrum, so it is built once for a given set of band limits. */
+    bank(fLo, fHi, nBands, q){
+      const key = fLo.toFixed(2) + "|" + fHi.toFixed(2) + "|" + nBands + "|" + q;
+      if (c._bankKey !== key){
+        c._bank = spectralBank(d, nx, ns, dts, fLo, fHi, nBands, q);
+        c._bankKey = key;
+      }
+      return c._bank;
+    },
+    /* The three covariance attributes come out of one pass, so whichever is
+       asked for first computes all of them. */
+    cov(winX, winT, which){
+      const key = winX + "|" + winT;
+      if (c._covKey !== key){
+        c._cov = attrEnergyRatio(this.A, this.tensor.dip, nx, ns, winX, winT);
+        c._covKey = key;
+      }
+      return c._cov[which];
+    },
     nx, ns, dts
   };
 }
@@ -507,6 +535,48 @@ function computeOne(key, p, C){
            " ms, drawn from " + vmin.toFixed(2) + " to 1" +
            "; along the line only, so a fault striking with the line will not show";
       break;
+    case "ers":
+    case "totenergy":
+    case "cohenergy": {
+      const which = key === "ers" ? "ratio" : key === "totenergy" ? "total" : "coherent";
+      a = C.cov(5, cohT, which);
+      if (key === "ers"){
+        vmin = Math.max(0.2, Math.min(0.95, pct(a, 1))); vmax = 1; cmap = "viridis";
+        unit = "largest eigenvalue over the trace of the covariance of 5 analytic traces and " +
+               (cohT*dts*1e3).toFixed(0) + " ms, along the local dip, drawn from " + vmin.toFixed(2) +
+               " to 1; along the line only";
+      } else {
+        vmin = 0; vmax = pct(a, 99); cmap = "magma";
+        unit = (key === "totenergy" ? "mean square amplitude" : "energy of the best single waveform") +
+               " over 5 traces and " + (cohT*dts*1e3).toFixed(0) + " ms, along the local dip";
+      }
+      break; }
+    case "nonpar":
+      a = attrNonparallel(C.tensor.dip, C.tensor.lin, nx, ns, 5, cohT);
+      vmin = 0; vmax = pct(a, 98); cmap = "viridis";
+      unit = "spread of apparent dip over 5 traces and " + (cohT*dts*1e3).toFixed(0) +
+             " ms, weighted by linearity; in the plane of the line only";
+      break;
+    case "peakfreq":
+    case "peakmag":
+    case "specbw":
+    case "specslope":
+    case "specrough": {
+      const fLo = Math.max(2, p.attrFc/3), fHi = Math.min(nyq*0.9, p.attrFc*2.5);
+      const bank = C.bank(fLo, fHi, 16, 3.0);
+      a = attrFromBank(bank, key, nx, ns);
+      const bandTxt = "16 constant-Q bands from " + fLo.toFixed(0) + " to " + fHi.toFixed(0) + " Hz";
+      if (key === "peakfreq"){ vmin = fLo; vmax = fHi; cmap = "viridis";
+        unit = "frequency of the strongest band, interpolated; " + bandTxt; }
+      else if (key === "peakmag"){ vmin = 0; vmax = pct(a, 99); cmap = "magma";
+        unit = "magnitude of the strongest band; " + bandTxt; }
+      else if (key === "specbw"){ vmin = 0; vmax = pct(a, 98); cmap = "viridis";
+        unit = "2*sigma of the local spectrum; " + bandTxt; }
+      else if (key === "specslope"){ [vmin, vmax] = sym(a); cmap = "coolwarm";
+        unit = "gradient of the spectrum in dB per Hz above its peak; " + bandTxt; }
+      else { vmin = 0; vmax = pct(a, 98); cmap = "magma";
+        unit = "RMS departure of the spectrum from a straight line above its peak; " + bandTxt; }
+      break; }
     case "rms":
       a = attrRMS(C.d, nx, ns, KI); vmin=0; vmax=pct(a,99);
       unit="running window of +/-" + (p.attrWinI/2).toFixed(0) + " ms"; break;
