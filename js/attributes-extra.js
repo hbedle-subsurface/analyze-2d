@@ -229,3 +229,92 @@ function attrFromBank(bank, which, nx, nz){
   }
   return o;
 }
+
+/* ===================== gray-level co-occurrence =====================
+
+   The texture measures of Haralick, Shanmugam and Dinstein (1973), read off a
+   vertical seismic section. Amplitudes are quantized to a small number of
+   levels over the whole section, and inside a window around every sample the
+   pairs of levels at a fixed offset are counted. The co-occurrence matrix is
+   that count, normalized; the measures below are sums over it.
+
+   On a horizon slice or a time slice the offset is taken in map directions and
+   the texture that is measured is a map pattern. On a vertical section the
+   choice matters more, because the two directions mean different things:
+
+   - along the reflector, using the local dip, the pairs compare a sample with
+     its neighbor one trace away on the same event, so the measure describes
+     lateral continuity of the reflection;
+   - down the trace, the pairs compare a sample with the one below it, so the
+     measure describes how fast the waveform changes with time, which follows
+     the frequency content and the bed spacing.
+
+   Contrast, dissimilarity, homogeneity, the mean and the variance are sums
+   over the pairs and are accumulated directly. Angular second moment and
+   entropy need the matrix itself, which is held as a small array of counts;
+   only the cells touched by the window are cleared afterward, so the cost
+   follows the number of pairs rather than the number of levels squared. */
+
+/* Amplitude quantized to L levels over the 1st to 99th percentile of the
+   section, which keeps a few large samples from compressing everything else
+   into one level. */
+function glcmQuantize(d, nx, nz, L){
+  const lo = percentile(d, 1), hi = percentile(d, 99);
+  const span = hi - lo || 1;
+  const q = new Uint8Array(nx*nz);
+  for (let k = 0; k < d.length; k++){
+    let v = Math.round((d[k] - lo)/span*(L - 1));
+    q[k] = v < 0 ? 0 : v > L - 1 ? L - 1 : v;
+  }
+  return q;
+}
+
+/* All seven measures in one pass over the section. dir is "dip" for pairs
+   along the reflector or "time" for pairs down the trace. */
+function attrGLCM(q, dip, nx, nz, L, winX, winT, dir){
+  const half = (winX - 1) >> 1, K = Math.max(1, (winT - 1) >> 1);
+  const out = {};
+  for (const k of ["con", "dis", "hom", "asm", "ent", "mean", "var"]) out[k] = new Float32Array(nx*nz);
+  // every pair touches two cells, since the matrix is made symmetric
+  const cnt = new Int32Array(L*L), touched = new Int32Array(2*winX*(2*K + 1) + 8);
+  const at = (i, z) => {
+    const ii = i < 0 ? 0 : i > nx - 1 ? nx - 1 : i;
+    const j = Math.round(z);
+    return q[ii*nz + (j < 0 ? 0 : j > nz - 1 ? nz - 1 : j)];
+  };
+  for (let i = 0; i < nx; i++){
+    for (let j = 0; j < nz; j++){
+      const k = i*nz + j, p = dip[k];
+      let n = 0, nt = 0, sCon = 0, sDis = 0, sHom = 0, sA = 0, sA2 = 0;
+      for (let m = -half; m <= half; m++){
+        for (let s = -K; s <= K; s++){
+          const z = j + s + m*p;
+          const a = at(i + m, z);
+          const b = dir === "time" ? at(i + m, z + 1) : at(i + m + 1, z + p);
+          const d0 = a - b;
+          sCon += d0*d0; sDis += Math.abs(d0); sHom += 1/(1 + d0*d0);
+          sA += a; sA2 += a*a;
+          const c = a*L + b;
+          if (cnt[c] === 0) touched[nt++] = c;
+          cnt[c]++;
+          const c2 = b*L + a;                    // the matrix is made symmetric
+          if (cnt[c2] === 0) touched[nt++] = c2;
+          cnt[c2]++;
+          n++;
+        }
+      }
+      const tot = 2*n;
+      let asm = 0, ent = 0;
+      for (let t = 0; t < nt; t++){
+        const c = touched[t], pr = cnt[c]/tot;
+        asm += pr*pr; ent -= pr*Math.log(pr);
+        cnt[c] = 0;
+      }
+      out.con[k] = sCon/n; out.dis[k] = sDis/n; out.hom[k] = sHom/n;
+      out.asm[k] = asm; out.ent[k] = ent;
+      const mu = sA/n;
+      out.mean[k] = mu; out.var[k] = Math.max(0, sA2/n - mu*mu);
+    }
+  }
+  return out;
+}

@@ -33,6 +33,13 @@
     <input type="range" id="attrFc" min="4" max="120" step="1" value="30">
     <label>Structure-tensor window <b><span id="v-ts"></span> samples</b></label>
     <input type="range" id="tSig" min="0.8" max="8" step="0.1" value="3">
+    <label>Texture levels <b><span id="v-gl"></span></b></label>
+    <input type="range" id="glcmL" min="8" max="64" step="8" value="16">
+    <label for="glcmDir">Texture pairs</label>
+    <select id="glcmDir">
+      <option value="dip">along the reflector</option>
+      <option value="time">down the trace</option>
+    </select>
     <label>Teager-Kaiser derivative length <b><span id="v-dl"></span> points</b></label>
     <input type="range" id="attrDl" min="5" max="9" step="2" value="7">
     <p class="hint" id="winInfo"></p>
@@ -88,10 +95,12 @@ const GROUPS = [
   ["Phase and frequency", ["insphase", "cosphase", "unwrap", "insfreq", "wavfreq", "wavphase", "avgfreq", "avgband", "band", "rgb",
                            "peakfreq", "peakmag", "specbw", "specslope", "specrough"]],
   ["Geometric", ["dip", "linearity", "coherence", "ers", "totenergy", "cohenergy", "nonpar"]],
+  ["Texture", ["glcmcon", "glcmdis", "glcmhom", "glcmasm", "glcment", "glcmmean", "glcmvar"]],
   ["Display", ["relief", "reliefrgb"]]
 ];
 const DEFAULT_SET = ["avt", "rms", "dip", "coherence", "avgfreq", "avgband"];
-const TENSOR_KEYS = ["dip", "linearity", "coherence", "ers", "totenergy", "cohenergy", "nonpar"];
+const TENSOR_KEYS = ["dip", "linearity", "coherence", "ers", "totenergy", "cohenergy", "nonpar"]
+  .concat(["glcmcon", "glcmdis", "glcmhom", "glcmasm", "glcment", "glcmmean", "glcmvar"]);
 let SEC = null, SPEC = null, TENSOR = null, TSIG = -1, SHOWN = [], PIDS = [];
 
 let RELZ_TOUCHED = false, CMAPS_SET = {};
@@ -120,7 +129,7 @@ function reliefScale(src, p, nx, ns){
   if (ph) $("panelH").value = ph;
   const saved = await kvGet("attrParams");
   if (saved){
-    ["attrWin", "attrWinI", "attrFc", "tSig", "attrDl"].forEach(k => { if (saved[k] !== undefined) $(k).value = saved[k]; });
+    ["attrWin", "attrWinI", "attrFc", "tSig", "attrDl", "glcmL", "glcmDir"].forEach(k => { if (saved[k] !== undefined) $(k).value = saved[k]; });
     $("winInfo").textContent = "Windows as last set on this page.";
   } else if (band && (band.fc || band.fpk) > 0){
     const f = band.fc || band.fpk;
@@ -150,13 +159,14 @@ function reliefScale(src, p, nx, ns){
 function params(){
   return {attrWin: +$("attrWin").value, attrWinI: +$("attrWinI").value, attrFc: +$("attrFc").value,
           tSig: +$("tSig").value, attrDl: +$("attrDl").value,
+          glcmL: +$("glcmL").value, glcmDir: $("glcmDir").value,
           relAz: +$("relAz").value, relAlt: +$("relAlt").value, relSurf: $("relSurf").value,
           relSm: +$("relSm").value, relZ: +$("relZ").value, cmap: DISP.cmap};
 }
 function syncLabels(){
   $("v-aw").textContent = $("attrWin").value; $("v-awi").textContent = $("attrWinI").value;
   $("v-fc").textContent = $("attrFc").value; $("v-ts").textContent = (+$("tSig").value).toFixed(1);
-  $("v-dl").textContent = $("attrDl").value;
+  $("v-dl").textContent = $("attrDl").value; $("v-gl").textContent = $("glcmL").value;
   $("v-alpha").textContent = (+$("alpha").value).toFixed(2);
   $("v-ph").textContent = $("panelH").value;
   $("v-az").textContent = $("relAz").value; $("v-alt").textContent = $("relAlt").value;
@@ -171,7 +181,8 @@ async function show(){
   const keys = selected();
   const p = params();
   await kvSet("attrSel", keys);
-  await kvSet("attrParams", {attrWin: p.attrWin, attrWinI: p.attrWinI, attrFc: p.attrFc, tSig: p.tSig, attrDl: p.attrDl});
+  await kvSet("attrParams", {attrWin: p.attrWin, attrWinI: p.attrWinI, attrFc: p.attrFc, tSig: p.tSig,
+                             attrDl: p.attrDl, glcmL: p.glcmL, glcmDir: p.glcmDir});
   $("btnShow").disabled = true;
   PIDS.forEach(id => { const el = $(id); if (el) el.remove(); });
   PIDS = []; SHOWN = [];
@@ -317,7 +328,7 @@ function striping(){
     '<p><a href="3-sos.html">Step 3: structure-oriented smoothing</a></p>';
 }
 
-["attrWin", "attrWinI", "attrFc", "tSig", "attrDl"].forEach(k => $(k).addEventListener("input", syncLabels));
+["attrWin", "attrWinI", "attrFc", "tSig", "attrDl", "glcmL"].forEach(k => $(k).addEventListener("input", syncLabels));
 $("btnShow").addEventListener("click", show);
 $("btnDefault").addEventListener("click", () => setSelection(DEFAULT_SET));
 $("btnNone").addEventListener("click", () => setSelection([]));

@@ -34,7 +34,8 @@ importScripts("dsp.js", "spectrum.js", "display.js", "attributes.js", "attribute
 const SMOOTHED = new Set(["envelope", "rms", "sweetness", "tke", "insfreq", "wavfreq", "avgfreq",
                           "avgband", "band", "dip", "linearity", "coherence",
                           "ers", "totenergy", "cohenergy", "nonpar",
-                          "peakfreq", "peakmag", "specbw", "specslope", "specrough"]);
+                          "peakfreq", "peakmag", "specbw", "specslope", "specrough",
+                          "glcmcon", "glcmdis", "glcmhom", "glcmasm", "glcment", "glcmmean", "glcmvar"]);
 let S = null;      // state of the current run
 
 function rng(seed){ // mulberry32, so the same settings give the same result
@@ -91,7 +92,8 @@ function buildFeatures(m){
   const {section: sec, keys, params: p, facies, win, tstep} = m;
   const {nx, ns, dt} = sec;
   const needT = keys.some(k => ["dip", "linearity", "coherence",
-                                                "ers", "totenergy", "cohenergy", "nonpar"].includes(k));
+                                                "ers", "totenergy", "cohenergy", "nonpar",
+                                                "glcmcon", "glcmdis", "glcmhom", "glcmasm", "glcment", "glcmmean", "glcmvar"].includes(k));
   let tensor = null;
   if (needT){ post("Structure tensor", 0); tensor = computeTensor(sec.data, nx, ns, p.tSig); }
   const C = attrCache(sec.data, nx, ns, dt, tensor);

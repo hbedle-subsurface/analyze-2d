@@ -413,7 +413,11 @@ const ATTR_META = {
   cohenergy:{n:"Coherent energy",s:"coh E"}, nonpar:{n:"Nonparallelism",s:"nonpar"},
   peakfreq:{n:"Peak frequency",s:"pk freq"}, peakmag:{n:"Peak magnitude",s:"pk mag"},
   specbw:{n:"Spectral bandwidth",s:"spec bw"}, specslope:{n:"Spectral slope",s:"slope"},
-  specrough:{n:"Spectral roughness",s:"rough"}
+  specrough:{n:"Spectral roughness",s:"rough"},
+  glcmcon:{n:"GLCM contrast",s:"contrast"}, glcmdis:{n:"GLCM dissimilarity",s:"dissim"},
+  glcmhom:{n:"GLCM homogeneity",s:"homog"}, glcmasm:{n:"GLCM angular second moment",s:"ASM"},
+  glcment:{n:"GLCM entropy",s:"entropy"}, glcmmean:{n:"GLCM mean",s:"GLCM mean"},
+  glcmvar:{n:"GLCM variance",s:"GLCM var"}
 };
 
 const CBLAB = {envelope:"amplitude", cosphase:"cos phase", insfreq:"Hz",
@@ -424,7 +428,10 @@ const CBLAB = {envelope:"amplitude", cosphase:"cos phase", insfreq:"Hz",
                wavphase:"radians", avgfreq:"Hz", avgband:"Hz",
                ers:"ratio", totenergy:"energy", cohenergy:"energy",
                nonpar:"samples/trace", peakfreq:"Hz", peakmag:"amplitude",
-               specbw:"Hz", specslope:"dB/Hz", specrough:"dB"};
+               specbw:"Hz", specslope:"dB/Hz", specrough:"dB",
+               glcmcon:"levels\u00b2", glcmdis:"levels", glcmhom:"homogeneity",
+               glcmasm:"probability\u00b2", glcment:"nats", glcmmean:"level",
+               glcmvar:"levels\u00b2"};
 
 /* The intermediates the attributes share, built once over whichever section is
    being worked on. The section and its structure tensor are carried on the
@@ -473,6 +480,16 @@ function attrCache(d, nx, ns, dt, tensor){
         c._bankKey = key;
       }
       return c._bank;
+    },
+    /* The texture measures come out of one pass over the quantized section. */
+    glcm(levels, winX, winT, dir){
+      const key = levels + "|" + winX + "|" + winT + "|" + dir;
+      if (c._glcmKey !== key){
+        if (c._qLevels !== levels){ c._q = glcmQuantize(d, nx, ns, levels); c._qLevels = levels; }
+        c._glcm = attrGLCM(c._q, this.tensor.dip, nx, ns, levels, winX, winT, dir);
+        c._glcmKey = key;
+      }
+      return c._glcm;
     },
     /* The three covariance attributes come out of one pass, so whichever is
        asked for first computes all of them. */
@@ -576,6 +593,33 @@ function computeOne(key, p, C){
         unit = "gradient of the spectrum in dB per Hz above its peak; " + bandTxt; }
       else { vmin = 0; vmax = pct(a, 98); cmap = "magma";
         unit = "RMS departure of the spectrum from a straight line above its peak; " + bandTxt; }
+      break; }
+    case "glcmcon":
+    case "glcmdis":
+    case "glcmhom":
+    case "glcmasm":
+    case "glcment":
+    case "glcmmean":
+    case "glcmvar": {
+      const L = p.glcmL || 16, dir = p.glcmDir || "dip";
+      const G = C.glcm(L, 5, cohT, dir);
+      const which = key.slice(4) === "mean" ? "mean" : key.slice(4);
+      a = G[which];
+      const where = dir === "time" ? "down the trace" : "along the local dip";
+      const win = L + " levels, 5 traces and " + (cohT*dts*1e3).toFixed(0) +
+                  " ms, pairs one step " + where;
+      if (key === "glcmhom" || key === "glcmasm"){ vmin = pct(a, 1); vmax = pct(a, 99); cmap = "viridis"; }
+      else if (key === "glcmmean"){ vmin = 0; vmax = L - 1; cmap = "gray"; }
+      else { vmin = 0; vmax = pct(a, 99); cmap = "magma"; }
+      const what = {
+        glcmcon: "mean squared difference between the levels of the paired samples",
+        glcmdis: "mean absolute difference between the levels of the paired samples",
+        glcmhom: "mean of 1/(1+difference squared), so near 1 where paired levels are alike",
+        glcmasm: "sum of the squared probabilities in the matrix",
+        glcment: "entropy of the matrix in nats",
+        glcmmean: "mean quantized level in the window",
+        glcmvar: "variance of the quantized levels in the window"}[key];
+      unit = what + "; " + win;
       break; }
     case "rms":
       a = attrRMS(C.d, nx, ns, KI); vmin=0; vmax=pct(a,99);
