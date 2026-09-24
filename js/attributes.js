@@ -703,11 +703,15 @@ function computeOne(key, p, C){
     case "reliefrgb": {
       const rs2 = reliefSurface(p, C, nx, ns, dts);
       const sh = attrRelief(rs2, nx, ns, p.relAz, p.relAlt, reliefScale(rs2, p, nx, ns));
-      const ch = attrReliefRGB(C.d, sh, nx, ns, p.cmap);
+      // the shading is a gray modulation over an amplitude color of its own,
+      // which is easier to read when the amplitude is on a diverging map and
+      // the relief carries only the light and shade
+      const ampMap = p.relAmp || "bwr";
+      const ch = attrReliefRGB(C.d, sh, nx, ns, ampMap);
       return {key, rgb:ch, scales:[255,255,255], title:ATTR_META.reliefrgb.n,
               cbLabel:"amplitude", legend:"ampbar",
-              ampLut:p.cmap, ampClip:(percentileAbs(C.d, 98) || 1e-30),
-              unit:"amplitude color shaded from " + p.relAz +
+              ampLut:ampMap, ampClip:(percentileAbs(C.d, 98) || 1e-30),
+              unit:"amplitude on " + ampMap + ", shaded in gray from " + p.relAz +
               "\u00b0, relief \u00d7" + p.relZ.toFixed(2)}; }
     case "rgb": {
       const fLo = Math.max(2, p.attrFc/1.8), fHi = Math.min(0.48/dts, p.attrFc*1.8);

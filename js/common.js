@@ -461,6 +461,90 @@ function frameToSample(id, ev, loose){
   const i = Math.round(v.i0 + u * (v.i1 - v.i0)), j = Math.round(v.j0 + w * (v.j1 - v.j0));
   return {i, j, u, v: w};
 }
+/* The color bar of a panel is a control as well as a key. Dragging on it moves
+   the end nearer the pointer, so the range can be stretched onto whatever part
+   of the values has to be seen; holding shift moves both ends together; a
+   double click puts the range back where the attribute set it. A range that
+   started symmetric about zero stays symmetric, so the middle color of a
+   diverging map keeps marking zero, unless alt is held. */
+function attachRangeDrag(id, hooks){
+  const cv = $(id + "-cb");
+  if (!cv || cv.dataset.rangeDrag) return;
+  cv.dataset.rangeDrag = "1";
+  cv.style.cursor = "ns-resize";
+  cv.title = "Drag to stretch the color range, shift-drag to shift it, double-click to reset";
+  let drag = null;
+  cv.addEventListener("pointerdown", e => {
+    const r = cv.getBoundingClientRect(), v = hooks.get();
+    if (!v || !(v.vmax > v.vmin)) return;
+    const up = 1 - (e.clientY - r.top)/Math.max(1, r.height);
+    drag = {y: e.clientY, h: Math.max(1, r.height), vmin: v.vmin, vmax: v.vmax,
+            sym: v.sym && !e.altKey,
+            mode: e.shiftKey ? "shift" : (up > 0.5 ? "max" : "min")};
+    cv.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const span = drag.vmax - drag.vmin, d = (drag.y - e.clientY)/drag.h*span;
+    let lo = drag.vmin, hi = drag.vmax;
+    if (drag.mode === "shift"){ lo += d; hi += d; }
+    else if (drag.sym){
+      const m = Math.max(span*0.01, (drag.mode === "max" ? drag.vmax + d : -(drag.vmin + d)));
+      lo = -m; hi = m;
+    }
+    else if (drag.mode === "max") hi = Math.max(lo + span*0.02, drag.vmax + d);
+    else lo = Math.min(hi - span*0.02, drag.vmin + d);
+    hooks.set(lo, hi);
+  });
+  const end = () => { drag = null; };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+  cv.addEventListener("dblclick", () => { drag = null; hooks.reset(); });
+}
+
+/* The color bar of a panel is a control as well as a key. Dragging on it moves
+   the end nearer the pointer, so the range can be stretched onto whatever part
+   of the values has to be seen; holding shift moves both ends together; a
+   double click puts the range back where the attribute set it. A range that
+   started symmetric about zero stays symmetric, so the middle color of a
+   diverging map keeps marking zero, unless alt is held. */
+function attachRangeDrag(id, hooks){
+  const cv = $(id + "-cb");
+  if (!cv || cv.dataset.rangeDrag) return;
+  cv.dataset.rangeDrag = "1";
+  cv.style.cursor = "ns-resize";
+  cv.title = "Drag to stretch the color range, shift-drag to shift it, double-click to reset";
+  let drag = null;
+  cv.addEventListener("pointerdown", e => {
+    const r = cv.getBoundingClientRect(), v = hooks.get();
+    if (!v || !(v.vmax > v.vmin)) return;
+    const up = 1 - (e.clientY - r.top)/Math.max(1, r.height);
+    drag = {y: e.clientY, h: Math.max(1, r.height), vmin: v.vmin, vmax: v.vmax,
+            sym: v.sym && !e.altKey,
+            mode: e.shiftKey ? "shift" : (up > 0.5 ? "max" : "min")};
+    cv.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  cv.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const span = drag.vmax - drag.vmin, d = (drag.y - e.clientY)/drag.h*span;
+    let lo = drag.vmin, hi = drag.vmax;
+    if (drag.mode === "shift"){ lo += d; hi += d; }
+    else if (drag.sym){
+      const m = Math.max(span*0.01, (drag.mode === "max" ? drag.vmax + d : -(drag.vmin + d)));
+      lo = -m; hi = m;
+    }
+    else if (drag.mode === "max") hi = Math.max(lo + span*0.02, drag.vmax + d);
+    else lo = Math.min(hi - span*0.02, drag.vmin + d);
+    hooks.set(lo, hi);
+  });
+  const end = () => { drag = null; };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+  cv.addEventListener("dblclick", () => { drag = null; hooks.reset(); });
+}
+
 function attachReadout(id){
   const fr = $(id + "-frame"), ro = $(id + "-ro");
   fr.addEventListener("mousemove", ev => {
