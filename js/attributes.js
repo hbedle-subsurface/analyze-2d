@@ -538,16 +538,16 @@ function computeOne(key, p, C){
     case "dip": {
       a = C.tensor.dip;
       const m = Math.max(Math.abs(pct(a,2)), Math.abs(pct(a,98)), 0.05);
-      vmin=-m; vmax=m; cmap="coolwarm";
+      vmin=-m; vmax=m; cmap="vik";
       unit="samples per trace, in the line direction only"; break; }
     case "linearity":
-      a = C.tensor.lin; vmin=0; vmax=1; cmap="viridis";
+      a = C.tensor.lin; vmin=0; vmax=1; cmap="gray";
       unit="0 where the image has no preferred orientation, 1 where it is layered"; break;
     case "coherence":
       a = attrCoherence(C.d, C.tensor.dip, nx, ns, 5, cohT);
       // on data where neighboring traces are alike the values crowd against 1,
       // so the bottom of the bar follows the data rather than sitting at 0
-      vmin = Math.max(0, Math.min(0.95, pct(a, 1))); vmax = 1; cmap="viridis";
+      vmin = Math.max(0, Math.min(0.95, pct(a, 1))); vmax = 1; cmap="gray";
       unit="semblance over 5 traces and " + (cohT*dts*1e3).toFixed(0) +
            " ms, drawn from " + vmin.toFixed(2) + " to 1" +
            "; along the line only, so a fault striking with the line will not show";
@@ -558,7 +558,7 @@ function computeOne(key, p, C){
       const which = key === "ers" ? "ratio" : key === "totenergy" ? "total" : "coherent";
       a = C.cov(5, cohT, which);
       if (key === "ers"){
-        vmin = Math.max(0.2, Math.min(0.95, pct(a, 1))); vmax = 1; cmap = "viridis";
+        vmin = Math.max(0.2, Math.min(0.95, pct(a, 1))); vmax = 1; cmap = "gray";
         unit = "largest eigenvalue over the trace of the covariance of 5 analytic traces and " +
                (cohT*dts*1e3).toFixed(0) + " ms, along the local dip, drawn from " + vmin.toFixed(2) +
                " to 1; along the line only";
@@ -583,13 +583,13 @@ function computeOne(key, p, C){
       const bank = C.bank(fLo, fHi, 16, 3.0);
       a = attrFromBank(bank, key, nx, ns);
       const bandTxt = "16 constant-Q bands from " + fLo.toFixed(0) + " to " + fHi.toFixed(0) + " Hz";
-      if (key === "peakfreq"){ vmin = fLo; vmax = fHi; cmap = "viridis";
+      if (key === "peakfreq"){ vmin = fLo; vmax = fHi; cmap = "batlow";
         unit = "frequency of the strongest band, interpolated; " + bandTxt; }
       else if (key === "peakmag"){ vmin = 0; vmax = pct(a, 99); cmap = "magma";
         unit = "magnitude of the strongest band; " + bandTxt; }
-      else if (key === "specbw"){ vmin = 0; vmax = pct(a, 98); cmap = "viridis";
+      else if (key === "specbw"){ vmin = 0; vmax = pct(a, 98); cmap = "batlow";
         unit = "2*sigma of the local spectrum; " + bandTxt; }
-      else if (key === "specslope"){ [vmin, vmax] = sym(a); cmap = "coolwarm";
+      else if (key === "specslope"){ [vmin, vmax] = sym(a); cmap = "vik";
         unit = "gradient of the spectrum in dB per Hz above its peak; " + bandTxt; }
       else { vmin = 0; vmax = pct(a, 98); cmap = "magma";
         unit = "RMS departure of the spectrum from a straight line above its peak; " + bandTxt; }
@@ -608,7 +608,7 @@ function computeOne(key, p, C){
       const where = dir === "time" ? "down the trace" : "along the local dip";
       const win = L + " levels, 5 traces and " + (cohT*dts*1e3).toFixed(0) +
                   " ms, pairs one step " + where;
-      if (key === "glcmhom" || key === "glcmasm"){ vmin = pct(a, 1); vmax = pct(a, 99); cmap = "viridis"; }
+      if (key === "glcmhom" || key === "glcmasm"){ vmin = pct(a, 1); vmax = pct(a, 99); cmap = "gray"; }
       else if (key === "glcmmean"){ vmin = 0; vmax = L - 1; cmap = "gray"; }
       else { vmin = 0; vmax = pct(a, 99); cmap = "magma"; }
       const what = {
@@ -626,7 +626,7 @@ function computeOne(key, p, C){
       unit="running window of +/-" + (p.attrWinI/2).toFixed(0) + " ms"; break;
     case "rai":
       a = attrRAI(C.d, nx, ns, dts, band[0], band[1], band[2], band[3]);
-      [vmin, vmax] = sym(a); cmap="batlow";
+      [vmin, vmax] = sym(a); cmap="vik";
       unit="trace integration then Ormsby; band-limited, no absolute datum"; break;
     case "tke":
       a = attrTKE(C.d, nx, ns, dts, p.attrDl, true); vmin=0; vmax=pct(a,99);
@@ -635,7 +635,7 @@ function computeOne(key, p, C){
     case "tkv":
       a = attrTKV(attrTKE(C.d, nx, ns, dts, p.attrDl, true), nx, ns, dts,
                   band[0], band[1], band[2], band[3]);
-      [vmin, vmax] = sym(a); cmap="coolwarm";
+      [vmin, vmax] = sym(a); cmap="vik";
       unit="bandpassed energy, then Hilbert; zero mean, so it can feed coherence"; break;
     case "band":
       a = attrSpectralBand(C.d, nx, ns, dts, p.attrFc, 3.0);
@@ -649,7 +649,7 @@ function computeOne(key, p, C){
       a = C.env; vmin=0; vmax=pct(a,99);
       unit="instantaneous amplitude, insensitive to polarity"; break;
     case "insphase":
-      a = C.phase; vmin=-Math.PI; vmax=Math.PI; cmap="coolwarm";
+      a = C.phase; vmin=-Math.PI; vmax=Math.PI; cmap="twilight";
       unit="radians; wraps at +/-pi"; break;
     case "cosphase": {
       const A = C.A; a = new Float32Array(nx*ns);
@@ -658,11 +658,12 @@ function computeOne(key, p, C){
       unit="every event at equal strength, so weak ones show alongside bright ones";
       break; }
     case "insfreq":
-      a = C.freq; vmin=percentile(a,2); vmax=pct(a,98); cmap="viridis";
+      a = C.freq; vmin=percentile(a,2); vmax=pct(a,98); cmap="batlow";
       unit="Hz; unstable wherever the envelope is small"; break;
     case "unwrap":
       a = attrUnwrap(C.rate, C.env, C.phase, nx, ns, dts);
-      vmin=percentile(a,1); vmax=pct(a,99); cmap="viridis";
+      // symmetric, so zero sits on the neutral color of the diverging map
+      [vmin, vmax] = sym(a); cmap="vik";
       unit="radians, integrated without wrapping (Vesnaver, 2017)"; break;
     case "sweetness": {
       const e = C.env, f = C.freq; a = new Float32Array(e.length);
@@ -671,19 +672,19 @@ function computeOne(key, p, C){
       unit="envelope divided by the square root of frequency"; break; }
     case "wavfreq":
       a = attrWavelet(C.env, C.freq, nx, ns, 1e-3);
-      vmin=0; vmax=Math.min(nyq, pct(a,98)); cmap="viridis";
+      vmin=0; vmax=Math.min(nyq, pct(a,98)); cmap="batlow";
       unit="Hz, held constant between envelope minima (Bodine, 1984)"; break;
     case "wavphase":
       a = attrWavelet(C.env, C.phase, nx, ns, 1e-3);
-      vmin=-Math.PI; vmax=Math.PI; cmap="coolwarm";
+      vmin=-Math.PI; vmax=Math.PI; cmap="twilight";
       unit="radians, taken at the envelope peak of each lobe"; break;
     case "avgfreq":
       a = attrAvgFreq(C.env, C.freq, nx, ns, KI, false, nyq);
-      vmin=0; vmax=Math.min(nyq, pct(a,98)); cmap="viridis";
+      vmin=0; vmax=Math.min(nyq, pct(a,98)); cmap="batlow";
       unit="Hz, power-weighted over +/-" + (p.attrWinI/2).toFixed(0) + " ms"; break;
     case "avgband":
       a = attrAvgFreq(C.env, C.freq, nx, ns, KI, true, nyq);
-      vmin=0; vmax=pct(a,98); cmap="viridis";
+      vmin=0; vmax=pct(a,98); cmap="batlow";
       unit="Hz, 2*sigma of the power-weighted frequency distribution over +/-" +
            (p.attrWinI/2).toFixed(0) + " ms"; break;
     case "relief": {
