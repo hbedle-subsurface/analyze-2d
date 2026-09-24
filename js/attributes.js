@@ -337,7 +337,7 @@ function attrWavelet(env, src, nx, nz, floorFrac){
        f_avg = sum(w e^2 f)/sum(w e^2),  f_rms = sqrt(sum(w e^2 f^2)/sum(w e^2))
    The full bandwidth is 2*sigma, twice Barnes's sigma, to match the
    signal-processing convention. ---- */
-function attrAvgFreq(env, freq, nx, nz, K, wantBandwidth){
+function attrAvgFreq(env, freq, nx, nz, K, wantBandwidth, nyq){
   const n = 2*K+1, w = new Float64Array(n);
   let ws = 0;
   for (let m=0;m<n;m++){ w[m] = 0.5 - 0.5*Math.cos(2*Math.PI*(m+1)/(n+1)); ws += w[m]; }
@@ -349,8 +349,14 @@ function attrAvgFreq(env, freq, nx, nz, K, wantBandwidth){
       let sp = 0, spf = 0, spf2 = 0;
       for (let m=-K;m<=K;m++){
         const jj = Math.min(nz-1, Math.max(0, j+m));
+        const f = freq[b+jj];
+        // instantaneous frequency outside 0 to Nyquist is not a frequency: the
+        // estimate is a ratio whose denominator is the squared envelope, and it
+        // runs away wherever the envelope passes through zero. Those samples
+        // carry no frequency information and are left out of the statistics.
+        if (!(f >= 0 && f <= nyq)) continue;
         const p = env[b+jj]*env[b+jj]*w[m+K];
-        sp += p; spf += p*freq[b+jj]; spf2 += p*freq[b+jj]*freq[b+jj];
+        sp += p; spf += p*f; spf2 += p*f*f;
       }
       const fa = spf/(sp+1e-30);
       if (!wantBandwidth){ o[b+j] = fa; continue; }
@@ -431,6 +437,24 @@ function attrCache(d, nx, ns, dt, tensor){
       return c._p;
     },
     get freq(){ return c._f || (c._f = attrInstFreq(this.A, this.env, nx, ns, dts)); },
+    /* Which samples carry signal. A crop that includes a water column, a mute
+       zone or a quiet interval below the reflective section holds samples whose
+       envelope is orders of magnitude below the rest. Attributes are still
+       computed there, and on those samples the instantaneous quantities are
+       determined by whatever noise is present, so their values are large and
+       arbitrary. The mask is used for the color ranges, so the range comes
+       from the part of the section that carries reflections. */
+    get live(){
+      if (!c._live){
+        const env = this.env, thr = 0.02 * percentile(env, 99);
+        const m = new Uint8Array(env.length);
+        let n = 0;
+        for (let k = 0; k < env.length; k++) if (env[k] > thr){ m[k] = 1; n++; }
+        c._live = m; c._liveN = n;
+      }
+      return c._live;
+    },
+    get liveFrac(){ this.live; return c._liveN / (nx*ns); },
     get rate(){ return c._r || (c._r = attrPhaseRate(this.A, this.env, nx, ns, dts)); },
     nx, ns, dts
   };
@@ -448,8 +472,19 @@ function computeOne(key, p, C){
   // correlation between the two rises from 0.57 to 0.62 on Wyoming Line 1.
   const cohT = Math.max(5, Math.min(81, 2*K + 1));
   const band = [5, 10, Math.min(60, nyq*0.5), Math.min(70, nyq*0.6)];
-  const sym = a => { const m = Math.max(Math.abs(percentile(a,1)),
-                                        Math.abs(percentile(a,99))) || 1e-9;
+  /* Percentiles for the color range, taken over the samples that carry signal
+     when they are at least a twentieth of the crop, and over everything when
+     they are not. */
+  const live = C.live, liveOK = C.liveFrac > 0.05;
+  const pct = (a, q) => {
+    if (!liveOK) return percentile(a, q);
+    const v = [];
+    for (let k = 0; k < a.length; k++) if (live[k] && isFinite(a[k])) v.push(a[k]);
+    if (v.length < 100) return percentile(a, q);
+    v.sort((x, y) => x - y);
+    return v[Math.min(v.length - 1, Math.max(0, Math.round(q / 100 * (v.length - 1))))];
+  };
+  const sym = a => { const m = Math.max(Math.abs(pct(a,1)), Math.abs(pct(a,99))) || 1e-9;
                      return [-m, m]; };
   let a, vmin, vmax, cmap = "magma", unit = "";
   let shadowPct = null;      // relief only: fraction of the image in full shadow
@@ -457,26 +492,30 @@ function computeOne(key, p, C){
   switch (key){
     case "dip": {
       a = C.tensor.dip;
-      const m = Math.max(Math.abs(percentile(a,2)), Math.abs(percentile(a,98)), 0.05);
+      const m = Math.max(Math.abs(pct(a,2)), Math.abs(pct(a,98)), 0.05);
       vmin=-m; vmax=m; cmap="coolwarm";
       unit="samples per trace, in the line direction only"; break; }
     case "linearity":
       a = C.tensor.lin; vmin=0; vmax=1; cmap="viridis";
       unit="0 where the image has no preferred orientation, 1 where it is layered"; break;
     case "coherence":
-      a = attrCoherence(C.d, C.tensor.dip, nx, ns, 5, cohT); vmin=0; vmax=1; cmap="viridis";
+      a = attrCoherence(C.d, C.tensor.dip, nx, ns, 5, cohT);
+      // on data where neighboring traces are alike the values crowd against 1,
+      // so the bottom of the bar follows the data rather than sitting at 0
+      vmin = Math.max(0, Math.min(0.95, pct(a, 1))); vmax = 1; cmap="viridis";
       unit="semblance over 5 traces and " + (cohT*dts*1e3).toFixed(0) +
-           " ms; along the line only, so a fault striking with the line will not show";
+           " ms, drawn from " + vmin.toFixed(2) + " to 1" +
+           "; along the line only, so a fault striking with the line will not show";
       break;
     case "rms":
-      a = attrRMS(C.d, nx, ns, KI); vmin=0; vmax=percentile(a,99);
+      a = attrRMS(C.d, nx, ns, KI); vmin=0; vmax=pct(a,99);
       unit="running window of +/-" + (p.attrWinI/2).toFixed(0) + " ms"; break;
     case "rai":
       a = attrRAI(C.d, nx, ns, dts, band[0], band[1], band[2], band[3]);
       [vmin, vmax] = sym(a); cmap="batlow";
       unit="trace integration then Ormsby; band-limited, no absolute datum"; break;
     case "tke":
-      a = attrTKE(C.d, nx, ns, dts, p.attrDl, true); vmin=0; vmax=percentile(a,99);
+      a = attrTKE(C.d, nx, ns, dts, p.attrDl, true); vmin=0; vmax=pct(a,99);
       unit="complex trace, " + p.attrDl + "-point derivative; reads low at high frequency";
       break;
     case "tkv":
@@ -486,14 +525,14 @@ function computeOne(key, p, C){
       unit="bandpassed energy, then Hilbert; zero mean, so it can feed coherence"; break;
     case "band":
       a = attrSpectralBand(C.d, nx, ns, dts, p.attrFc, 3.0);
-      vmin=0; vmax=percentile(a,99);
+      vmin=0; vmax=pct(a,99);
       unit="constant-Q Gaussian band at " + p.attrFc + " Hz, then envelope"; break;
     case "avt":
       a = attrAVT(C.env, nx, ns, K); [vmin, vmax] = sym(a); cmap="gray";
       unit="RMS envelope over +/-" + (p.attrWin/2).toFixed(0) +
            " ms, then inverse Hilbert; zero mean"; break;
     case "envelope":
-      a = C.env; vmin=0; vmax=percentile(a,99);
+      a = C.env; vmin=0; vmax=pct(a,99);
       unit="instantaneous amplitude, insensitive to polarity"; break;
     case "insphase":
       a = C.phase; vmin=-Math.PI; vmax=Math.PI; cmap="coolwarm";
@@ -505,32 +544,32 @@ function computeOne(key, p, C){
       unit="every event at equal strength, so weak ones show alongside bright ones";
       break; }
     case "insfreq":
-      a = C.freq; vmin=percentile(a,2); vmax=percentile(a,98); cmap="viridis";
+      a = C.freq; vmin=percentile(a,2); vmax=pct(a,98); cmap="viridis";
       unit="Hz; unstable wherever the envelope is small"; break;
     case "unwrap":
       a = attrUnwrap(C.rate, C.env, C.phase, nx, ns, dts);
-      vmin=percentile(a,1); vmax=percentile(a,99); cmap="viridis";
+      vmin=percentile(a,1); vmax=pct(a,99); cmap="viridis";
       unit="radians, integrated without wrapping (Vesnaver, 2017)"; break;
     case "sweetness": {
       const e = C.env, f = C.freq; a = new Float32Array(e.length);
       for (let k=0;k<a.length;k++) a[k] = e[k]/Math.sqrt(Math.max(Math.abs(f[k]),1));
-      vmin=0; vmax=percentile(a,99);
+      vmin=0; vmax=pct(a,99);
       unit="envelope divided by the square root of frequency"; break; }
     case "wavfreq":
       a = attrWavelet(C.env, C.freq, nx, ns, 1e-3);
-      vmin=0; vmax=Math.min(nyq, percentile(a,98)); cmap="viridis";
+      vmin=0; vmax=Math.min(nyq, pct(a,98)); cmap="viridis";
       unit="Hz, held constant between envelope minima (Bodine, 1984)"; break;
     case "wavphase":
       a = attrWavelet(C.env, C.phase, nx, ns, 1e-3);
       vmin=-Math.PI; vmax=Math.PI; cmap="coolwarm";
       unit="radians, taken at the envelope peak of each lobe"; break;
     case "avgfreq":
-      a = attrAvgFreq(C.env, C.freq, nx, ns, KI, false);
-      vmin=0; vmax=Math.min(nyq, percentile(a,98)); cmap="viridis";
+      a = attrAvgFreq(C.env, C.freq, nx, ns, KI, false, nyq);
+      vmin=0; vmax=Math.min(nyq, pct(a,98)); cmap="viridis";
       unit="Hz, power-weighted over +/-" + (p.attrWinI/2).toFixed(0) + " ms"; break;
     case "avgband":
-      a = attrAvgFreq(C.env, C.freq, nx, ns, KI, true);
-      vmin=0; vmax=percentile(a,98); cmap="viridis";
+      a = attrAvgFreq(C.env, C.freq, nx, ns, KI, true, nyq);
+      vmin=0; vmax=pct(a,98); cmap="viridis";
       unit="Hz, 2*sigma of the power-weighted frequency distribution over +/-" +
            (p.attrWinI/2).toFixed(0) + " ms"; break;
     case "relief": {
@@ -568,6 +607,11 @@ function computeOne(key, p, C){
                    " Hz, blue " + fHi.toFixed(0) + " Hz"}; }
     default: return null;
   }
+  // say so when part of the crop carries no signal and the range came from
+  // the rest of it, since that is a fact about the display, not the data
+  if (liveOK && C.liveFrac < 0.9)
+    unit += (unit ? "; " : "") + "color range from the " + Math.round(100*C.liveFrac) +
+            " percent of the crop carrying signal";
   return {key, a, vmin, vmax, cmapDefault:cmap, unit, shadowPct,
           title:ATTR_META[key].n, cbLabel:CBLAB[key] || ""};
 }
