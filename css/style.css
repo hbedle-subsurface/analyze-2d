@@ -1,0 +1,213 @@
+/* analyze-2d — styles after the scan-lecture tool: a dark board with the
+   section on the left, pinned paper cards on the right, and the steps as paper
+   tags across the header. */
+:root{
+  --board:#23292c; --board-2:#2c3438; --line:#3b4549;
+  --paper:#efe5c8; --paper-edge:#d9cba2; --cream:#fffaf0; --ink:#1f1d18; --ink-soft:#5a5446;
+  --thread:#c8362d; --chalk:#dfe6e9; --chalk-dim:#9fb0b6; --warn:#9d0208;
+  --font-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --font-body:"Barlow","Helvetica Neue",Arial,sans-serif;
+  --num:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* names the glossary card expects */
+  --crimson:var(--thread); --panel:var(--paper); --mono:var(--num); --rule:var(--paper-edge);
+  --slate:var(--ink-soft); --display:var(--font-display); --red:var(--thread);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--board);color:var(--chalk);font-family:var(--font-body);font-size:16px;line-height:1.45}
+button,select,input{font:inherit}
+[hidden]{display:none!important}
+:focus-visible{outline:3px solid #ffd166;outline-offset:2px}
+a{color:var(--paper)}
+.num{font-family:var(--num);font-variant-numeric:tabular-nums}
+
+/* ---------- header: title and the steps as tags ---------- */
+.bar{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:8px 24px;padding:10px 20px 10px;border-bottom:1px solid var(--line)}
+.case h1{font-family:var(--font-display);font-weight:700;font-size:1.7rem;line-height:1;margin:0;letter-spacing:.01em}
+.case h1 a{color:inherit;text-decoration:none}
+.case p{margin:4px 0 0;color:var(--chalk-dim);font-size:.95rem}
+.case p b{color:var(--chalk);font-weight:600}
+.stages{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+.tag{position:relative;display:flex;align-items:center;gap:7px;padding:4px 12px 4px 7px;border:0;border-radius:3px 12px 12px 3px;
+  background:var(--paper);color:var(--ink);font-family:var(--font-display);font-weight:600;font-size:1rem;cursor:pointer;opacity:.62;text-decoration:none}
+.tag:hover{opacity:.85}
+.tag span{display:grid;place-items:center;width:1.5em;height:1.5em;border-radius:50%;background:var(--ink);color:var(--paper);font-size:.9rem}
+.tag[aria-current="page"]{opacity:1;box-shadow:0 0 0 2px var(--thread)}
+.tag[aria-current="page"] span{background:var(--thread)}
+.tag.branch span{width:auto;min-width:1.5em;padding:0 .3em;border-radius:.75em}
+.tag.skipped span{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--ink-soft)}
+.tag.methods{background:transparent;color:var(--paper);border:1px solid var(--paper-edge);opacity:1}
+
+/* ---------- the board: section left, cards right ---------- */
+/* The cards on the right flow into as many columns as the screen allows, so
+   a laptop screen shows them side by side instead of one long stack. */
+.dash{display:grid;grid-template-columns:minmax(0,1fr) var(--cardcols-w,300px);gap:16px;padding:14px 20px;align-items:start}
+.dash > main.stage{grid-column:1;grid-row:1;min-width:0}
+.dash > aside.side{grid-column:2;grid-row:1;display:block;column-count:var(--cardcols,1);column-gap:14px;padding-top:6px}
+.dash > aside.side > .card{break-inside:avoid;margin:0 0 18px;width:100%;display:inline-block}
+@media (min-width:1180px){ .dash{--cardcols:2;--cardcols-w:540px} }
+.card > h2.foldable{cursor:pointer;user-select:none}
+.card > h2.foldable::after{content:"▾";margin-left:6px;font-size:.9rem;color:var(--ink-soft);order:3}
+.card.folded > h2.foldable::after{content:"▸"}
+.card.folded{padding-bottom:6px}
+.card.folded > h2{margin-bottom:0;font-size:1.2rem}
+.card.folded > :not(h2){display:none !important}
+
+.card{position:relative;background:var(--paper);color:var(--ink);padding:18px 16px 14px;border-radius:2px;border-bottom:3px solid var(--paper-edge)}
+.card::before{content:"";position:absolute;top:-6px;left:50%;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--thread);box-shadow:0 2px 0 rgba(0,0,0,.35)}
+.card h2{font-family:var(--font-display);font-weight:700;font-size:1.5rem;line-height:1.1;margin:0 0 10px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.card h2 .help{margin-left:auto}
+.card h3{font-family:var(--font-display);font-weight:600;font-size:1.1rem;margin:14px 0 4px}
+.card label{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:.92rem;margin:8px 0 2px}
+.card label b{font-family:var(--num);font-weight:400;font-size:.8rem}
+.card select{width:100%;padding:5px;border:1px solid var(--ink-soft);background:var(--cream);color:var(--ink);border-radius:3px}
+.card input[type=range]{width:100%;accent-color:var(--thread)}
+.card input[type=number]{width:100%;padding:4px;border:1px solid var(--ink-soft);background:var(--cream);color:var(--ink);border-radius:3px}
+.card .toggle:not([hidden]){display:flex;justify-content:flex-start;gap:8px}
+.guide{font-size:.9rem;margin:0 0 8px}
+.guide p{margin:0 0 4px}
+.hint{font-size:.82rem;color:var(--ink-soft);margin:6px 0 0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.row2 label{display:grid;gap:3px;margin:6px 0 0}
+.btnrow{display:grid;gap:6px;margin:10px 0 0}
+.btnrow:has(> :nth-child(2)){grid-template-columns:1fr 1fr}
+.card button,.empty button{width:100%;padding:8px;border:2px solid var(--ink);background:transparent;color:var(--ink);border-radius:3px;cursor:pointer;font-weight:600}
+.card button:hover{background:rgba(31,29,24,.06)}
+.card button.primary{background:var(--thread);border-color:var(--thread);color:#fff}
+.card button.primary:hover{background:#a92c24}
+.card button:disabled{opacity:.5;cursor:wait}
+/* glossary terms are buttons too, and must read as text wherever they sit */
+.card button.gterm,button.gterm{width:auto;display:inline;padding:0;border:0;border-radius:0;background:none;color:inherit;font:inherit;font-weight:inherit;cursor:help}
+.card button.gterm:hover{background:none}
+button.help{width:auto;border:0;background:none;padding:0;color:var(--warn);font-size:.8rem;font-weight:500;text-decoration:underline dotted;text-underline-offset:3px;cursor:help;font-family:var(--font-body)}
+.card button.help{width:auto;border:0;padding:0}
+.card button.help:hover{background:none}
+
+/* ---------- main area ---------- */
+main.stage{padding:0}
+.status{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap;color:var(--chalk-dim);font-size:.9rem;margin:0 0 8px}
+.status b{color:var(--chalk);font-weight:600}
+.busy{color:#ffd166;font-variant-numeric:tabular-nums}
+.note{font-size:.9rem;line-height:1.4;color:var(--chalk);border-left:3px solid var(--thread);padding:2px 0 2px 10px;margin:12px 0 0;max-width:80ch}
+.note p{margin:0 0 6px}
+.note b{color:var(--paper)}
+.empty{background:var(--paper);color:var(--ink);padding:18px 16px;border-radius:2px;border-bottom:3px solid var(--paper-edge);max-width:60ch;position:relative}
+.empty a{color:var(--thread);font-weight:600}
+.banner{background:var(--paper);color:var(--ink);border-left:4px solid var(--thread);padding:10px 14px;margin:0 0 12px;font-size:.9rem;max-width:90ch;border-radius:2px}
+.banner h3{margin:0 0 4px;font-family:var(--font-display);font-size:1.2rem;display:flex;gap:8px;align-items:baseline}
+.banner a{color:var(--thread);font-weight:600}
+.nextstep{margin-top:16px}
+.nextstep a,a.next{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:3px 12px 12px 3px;background:var(--paper);color:var(--ink);
+  font-family:var(--font-display);font-weight:600;font-size:1.1rem;text-decoration:none}
+.nextstep a:hover{box-shadow:0 0 0 2px var(--thread)}
+
+/* ---------- zoom bar ---------- */
+.viewbar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-bottom:10px}
+.viewbar .foldseg{margin-left:auto}
+.viewbar .foldseg button{font-size:.85rem;padding:4px 10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{background:transparent;color:var(--chalk);border:0;padding:5px 12px;cursor:pointer;font-family:var(--font-body);font-size:.95rem}
+.seg button[aria-pressed="true"]{background:var(--chalk);color:var(--board)}
+.readout{color:var(--chalk-dim);font-size:.9rem;font-variant-numeric:tabular-nums}
+.ptools{margin-left:auto;display:inline-flex;gap:6px;align-items:center;color:var(--chalk-dim);font-size:.8rem}
+.ptools select{font-size:.8rem;padding:1px 3px}
+
+/* ---------- section panels ---------- */
+.panels{display:grid;gap:14px}
+.panel{background:#111;padding:8px 6px 4px 0}
+.panel .cap{display:flex;align-items:baseline;gap:10px;margin:0 0 4px 10px;flex-wrap:wrap}
+.panel .cap h3{margin:0;font-family:var(--font-display);font-weight:600;font-size:1.15rem;color:var(--chalk)}
+.panel .cap .pnote{font-size:.82rem;color:var(--chalk-dim)}
+.panel .cap .pnote b{color:var(--paper)}
+.plot{display:grid;grid-template-columns:56px minmax(0,1fr) 64px;grid-template-rows:auto 30px}
+.plot .yax{grid-column:1;grid-row:1;width:56px;height:100%}
+.plot .frame{grid-column:2;grid-row:1;position:relative;background:#111;height:var(--ph,300px)}
+.plot .frame canvas{position:absolute;inset:0;width:100%;height:100%}
+.plot .frame canvas.cls{image-rendering:pixelated}
+.plot .cb{grid-column:3;grid-row:1;width:64px;height:100%}
+.plot .xax{grid-column:2;grid-row:2;width:100%;height:30px}
+.plot .ro{position:absolute;right:4px;top:4px;background:rgba(35,41,44,.9);color:var(--chalk);font-variant-numeric:tabular-nums;
+  font-size:.78rem;padding:2px 6px;border-radius:3px;pointer-events:none}
+.plot .frame.crosshair{cursor:crosshair}
+
+/* ---------- small plots and tables, on paper ---------- */
+.figrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:14px;align-items:start}
+.figrow h3,.board-h3{font-family:var(--font-display);font-weight:600;font-size:1.15rem;margin:0 0 4px;color:var(--chalk)}
+.plotbox{background:var(--cream);border-radius:2px;border-bottom:3px solid var(--paper-edge)}
+.plotbox canvas{display:block;width:100%}
+.bars canvas{display:block;width:100%;background:var(--cream);border-radius:2px}
+table.data{border-collapse:collapse;font-size:.85rem;margin:4px 0;background:var(--cream);color:var(--ink)}
+table.data th,table.data td{border:1px solid var(--paper-edge);padding:3px 8px;text-align:right}
+table.data th{background:var(--paper);font-weight:600;text-align:left}
+pre.ebcdic{font-family:var(--num);font-size:.74rem;line-height:1.35;background:var(--cream);color:var(--ink);
+  padding:8px;max-height:18rem;overflow:auto;margin:4px 0;border-radius:2px}
+.corr{background:var(--cream);padding:8px;border-radius:2px;color:var(--ink);overflow-x:auto}
+.corr table{border-collapse:collapse;font-family:var(--num);font-size:.75rem}
+.corr th,.corr td{padding:3px 6px;text-align:center;border:1px solid var(--cream)}
+.corr th{color:var(--ink-soft);font-weight:400}
+.corr td.hi{outline:2px solid var(--ink);outline-offset:-2px}
+.corr p{margin:0;font-size:.85rem}
+
+/* ---------- attribute lists and runs, inside cards ---------- */
+.checks{display:grid;gap:2px;max-height:22rem;overflow:auto;margin-bottom:6px}
+.checks h4{font-weight:600;font-size:.8rem;color:var(--ink-soft);margin:8px 0 2px;text-transform:uppercase;letter-spacing:.04em}
+.checks label{display:flex;justify-content:flex-start;gap:8px;margin:0;font-size:.95rem}
+.checks label .help{margin-left:auto}
+.runs{display:grid;gap:4px;margin:6px 0}
+.runs button{text-align:left;padding:6px 8px;border:1px solid var(--ink-soft);font-weight:400;font-size:.88rem}
+.runs button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.runs small{display:block;opacity:.8}
+.progress{height:8px;background:#e0d4b0;border-radius:4px;overflow:hidden;margin-top:8px}
+.progress span{display:block;height:100%;width:0;background:var(--thread)}
+
+/* ---------- landing ---------- */
+.landing{padding:14px 20px 30px}
+.landing .lede{font-size:1.05rem;color:var(--chalk);max-width:70ch;margin:4px 0 22px;border-left:3px solid var(--thread);padding-left:10px}
+.open{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-bottom:30px;max-width:1100px}
+.open .card p{margin:4px 0}
+.drop{border:2px dashed var(--ink-soft);padding:18px;text-align:center;border-radius:3px;background:var(--cream)}
+.drop.over{border-color:var(--thread)}
+.steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;max-width:1100px}
+.steps h4{grid-column:1/-1;margin:0 0 4px;font-family:var(--font-display);font-size:1.3rem;color:var(--chalk)}
+.steps a{display:block;background:var(--paper);color:var(--ink);text-decoration:none;padding:10px 14px 12px;border-radius:3px 14px 14px 3px;opacity:.9}
+.steps a:hover{opacity:1;box-shadow:0 0 0 2px var(--thread)}
+.steps a .n{display:inline-grid;place-items:center;width:1.5em;height:1.5em;border-radius:50%;background:var(--ink);color:var(--paper);font-family:var(--font-display);font-weight:600;font-size:.9rem;margin-right:6px}
+.steps a h3{display:inline;font-family:var(--font-display);font-weight:600;font-size:1.2rem;margin:0}
+.steps a p{margin:6px 0 0;font-size:.88rem;color:var(--ink-soft)}
+
+main select{background:var(--board-2);color:var(--chalk);border:1px solid var(--line);border-radius:4px;padding:3px}
+main .row2 label{color:var(--chalk-dim);font-size:.9rem}
+main .btnrow{display:flex;gap:8px}
+main .btnrow button{width:auto;padding:6px 14px;border:0;border-radius:3px 12px 12px 3px;background:var(--paper);color:var(--ink);
+  font-family:var(--font-display);font-weight:600;font-size:1.05rem;cursor:pointer}
+main .btnrow button:disabled{opacity:.5;cursor:wait}
+.key{background:var(--paper);color:var(--ink);padding:10px;border-radius:2px;border-bottom:3px solid var(--paper-edge)}
+.key p{color:var(--ink-soft) !important}
+.keybtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.keybtns button{padding:4px;border:2px solid var(--ink);background:transparent;color:var(--ink);border-radius:3px;cursor:pointer;font-weight:600;font-size:.85rem}
+.keybtns button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.key label{color:var(--ink)}
+.key input[type=range]{accent-color:var(--thread);width:100%}
+footer.foot{padding:8px 20px 18px;color:var(--chalk-dim);font-size:.8rem;border-top:1px solid var(--line);margin-top:14px}
+footer.foot p{margin:2px 0}
+
+/* glossary card, in the scan-lecture paper style */
+.gcard{background:var(--paper) !important;color:var(--ink);border:0 !important;border-top:0 !important;border-radius:3px;box-shadow:0 8px 24px rgba(0,0,0,.45) !important}
+.gcard h4{font-family:var(--font-display) !important;font-size:1.2rem !important}
+.gcard p{color:var(--ink) !important}
+.gterm{border-bottom:0 !important;text-decoration:underline dotted;text-underline-offset:3px}
+.gterm:hover{background:none !important}
+
+@media (max-width:900px){
+  .dash{grid-template-columns:1fr}
+  .dash > aside.side{grid-column:1;grid-row:2;column-count:2}
+  .open{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* guidance lists and check tables */
+.steps-list{margin:0;padding-left:1.2rem;font-size:.88rem}
+.steps-list li{margin:0 0 6px}
+.checks-table td,.checks-table th{vertical-align:top}
+.checks-table td:last-child{text-align:left;max-width:34ch}
+.checks-table tr.flag td,.checks-table tr.flag th{background:#f6d9d3}
+.checks-table .up,.checks-table .down{color:var(--ink-soft);font-size:.75rem}

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
+<title>4. Spectral balancing — Analyze 2D</title>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>Spectral balancing<button class="help" data-help="balance">Learn more</button></h2>
+    <label class="toggle"><input type="checkbox" id="apply"> Apply this step</label>
+    <div class="guide"><p>Each trace is split into overlapping frequency bands. Balancing
+    in time holds each band at a constant level down the record; flattening brings the bands to a
+    common level, which is whitening.</p></div>
+    <label>Balancing in time <b><span id="v-str"></span></b></label>
+    <input type="range" id="bStr" min="0" max="1" step="0.05" value="0.7">
+    <label>Flattening across frequency <b><span id="v-flat"></span></b></label>
+    <input type="range" id="bFlat" min="0" max="1" step="0.05" value="0.3">
+    <label>Envelope window <b><span id="v-sm"></span> ms</b></label>
+    <input type="range" id="bSm" min="50" max="1500" step="10" value="300">
+    <label>Number of bands <b><span id="v-nb"></span></b></label>
+    <input type="range" id="bNb" min="4" max="16" step="1" value="8">
+    <label>Stability floor <b><span id="v-floor"></span>%</b></label>
+    <input type="range" id="bFloor" min="1" max="50" step="1" value="5">
+    <h2>Output taper, Hz</h2>
+    <div class="row2">
+      <label>f1<input type="number" id="f1" min="0" step="1"></label>
+      <label>f2<input type="number" id="f2" min="0" step="1"></label>
+      <label>f3<input type="number" id="f3" min="0" step="1"></label>
+      <label>f4<input type="number" id="f4" min="0" step="1"></label>
+    </div>
+    <p class="hint" id="taperInfo"></p>
+    <div class="btnrow"><button class="primary" id="btnRun">Run balancing</button></div>
+    <p class="hint">A full pass takes several seconds, so it runs from the button rather than on every slider move.</p>
+    <div class="btnrow"><button id="btnStart">Starting values</button></div>
+
+    <h2>How the settings are usually chosen</h2>
+    <ol class="steps-list">
+      <li>The output taper sits on the band measured on step 2: f2 and f3 at the 6 dB points, f1 and f4 at
+      the 20 dB points. Corners beyond the measured band raise frequencies that hold mostly noise.</li>
+      <li>Balancing in time between about 0.5 and 0.8 makes up for the loss of high frequencies with depth.</li>
+      <li>Flattening across frequency is kept moderate, about 0.3 to 0.5. Full flattening is whitening: every band
+      is brought to the same level whether it carries reflections or noise.</li>
+      <li>The envelope window covers several periods of the band center, about 5 to 15. A short window follows
+      single reflections and evens out real amplitude contrasts between them.</li>
+      <li>The stability floor, about 5 to 10%, stops bands with almost no energy from being raised without limit.</li>
+    </ol>
+    <p class="hint">The checks under the panels show whether frequencies outside the band are being raised,
+    whether the band now holds steady down the record, and whether lateral continuity drops.</p>
+    <h2>Removed panel</h2>
+    <label>Gain on the removed panel <b><span id="v-remGain"></span>×</b></label>
+    <input type="range" id="remGain" min="1" max="20" step="0.5" value="4">
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="panels" id="panels"></div>
+    <div class="figrow">
+      <div><h3>Amplitude spectrum before and after</h3>
+        <div class="plotbox"><canvas id="spec" style="height:260px"></canvas></div></div>
+      <div><h3>6 dB band down the record, before and after</h3>
+        <div class="plotbox"><canvas id="edges" style="height:260px"></canvas></div></div>
+    </div>
+    <div class="figrow"><div><h3>Checks</h3><div id="checks"></div></div><div class="note" id="note"></div></div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/spectrum.js"></script>
+<script src="../js/measure.js"></script>
+<script src="../js/balance.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script src="../js/qc.js"></script>
+<script src="../js/filterpage.js"></script>
+<script>
+let SPIN = null, QB = null, PREVB = null;
+function setFromBand(band, nyq){
+  $("f1").value = Math.max(1, Math.round(band.lo20));
+  $("f2").value = Math.max(2, Math.round(band.lo6));
+  $("f3").value = Math.round(band.hi6);
+  $("f4").value = Math.round(Math.min(0.95 * nyq, band.hi20));
+  const fc = band.fc || band.fpk;
+  if (fc > 0) $("bSm").value = Math.max(150, Math.min(800, Math.round(10 * 1000 / fc / 10) * 10));
+}
+filterPage({
+  stage: "balance", stepId: "balance", auto: false,
+  controls: ["bStr", "bFlat", "bSm", "bNb", "bFloor", "f1", "f2", "f3", "f4"],
+  defaults(input, band){
+    const nyq = 0.5 / (input.dt * 1e-6);
+    if (band){
+      setFromBand(band, nyq);
+      $("taperInfo").textContent = "Taper corners start from the band measured on step 2: f2 and f3 at the 6 dB points, f1 and f4 at the 20 dB points.";
+    } else {
+      $("f1").value = 4; $("f2").value = 8; $("f3").value = Math.round(0.4 * nyq); $("f4").value = Math.round(0.5 * nyq);
+      $("taperInfo").textContent = "Step 2 has not measured the band, so the corners are generic.";
+    }
+  },
+  setParams(p){
+    $("bStr").value = p.strength; $("bFlat").value = p.flatten; $("bSm").value = p.smoothMs;
+    $("bNb").value = p.nb; $("bFloor").value = p.floorPct;
+    $("f1").value = p.f1; $("f2").value = p.f2; $("f3").value = p.f3; $("f4").value = p.f4;
+  },
+  readParams: () => ({strength: +$("bStr").value, flatten: +$("bFlat").value, smoothMs: +$("bSm").value,
+                      nb: +$("bNb").value, floorPct: +$("bFloor").value,
+                      f1: +$("f1").value, f2: +$("f2").value, f3: +$("f3").value, f4: +$("f4").value}),
+  syncLabels(){
+    $("v-str").textContent = (+$("bStr").value).toFixed(2); $("v-flat").textContent = (+$("bFlat").value).toFixed(2);
+    $("v-sm").textContent = $("bSm").value; $("v-nb").textContent = $("bNb").value; $("v-floor").textContent = $("bFloor").value;
+  },
+  apply(input, p){
+    // One scalar for the whole section brings the output to the RMS amplitude of
+    // the input, so the removed panel holds the change in the shape of the
+    // spectrum rather than a change in overall level.
+    const out = spectralBalance(input.data, input.nx, input.ns, input.dt * 1e-6, p);
+    let a = 0, b = 0;
+    for (let k = 0; k < out.length; k++){ a += input.data[k] * input.data[k]; b += out[k] * out[k]; }
+    const g = b > 0 ? Math.sqrt(a / b) : 1;
+    for (let k = 0; k < out.length; k++) out[k] *= g;
+    return out;
+  },
+  after(){ QB = FP.on ? qcBalance(FP.input, FP.kept, 250) : null; drawSpec(); checks(); },
+  note(fp){
+    if (!fp.on) return "<p>The step is skipped, so the next step works on " + STAGE_NAMES[fp.input.stage] + ".</p>";
+    return "<p>The output is scaled by one number so that its RMS amplitude equals that of the input. " +
+      "The removed part carries " + fp.pct.toFixed(1) + "% of the input energy. Balancing raises weak " +
+      "frequencies whether the energy there is reflection or noise, so noise that the input held below the " +
+      "signal can appear in the kept panel at the level of the signal.</p>";
+  }
+});
+function drawSpec(){
+  if (!FP) return;
+  if (!SPIN) SPIN = spectrumOf(FP.input, 250);
+  const out = QB ? QB.specOut : null;
+  const fmax = fAxisMax(FP.input.dt);
+  const f = Array.from({length: SPIN.whole.length}, (_, q) => q * SPIN.df);
+  const P = plotFrame($("spec"), [0, fmax], [-60, 0], "frequency (Hz)", "amplitude (dB below peak)");
+  if (!P) return;
+  const p = FP.cfg.readParams();
+  const tap = balanceResponse(f, p).map(v => Math.max(-80, 20 * Math.log10(v || 1e-20)));
+  plotLine(P, f, tap, "#C9CDD2", 1.2, [4, 3]);
+  plotLine(P, f, specDb(SPIN.whole), "#16191C", 1.8);
+  if (out) plotLine(P, f, specDb(out.whole), "#841617", 1.8);
+  const c = P.ctx; c.font = "10px 'IBM Plex Sans', system-ui"; c.textBaseline = "top"; c.textAlign = "left";
+  c.fillStyle = "#16191C"; c.fillText("input", P.w - P.R - 110, P.T + 6);
+  c.fillStyle = "#841617"; if (out) c.fillText("balanced", P.w - P.R - 110, P.T + 20);
+  c.fillStyle = "#5C6670"; c.fillText("output taper", P.w - P.R - 110, P.T + 34);
+  // the measured band, so the taper corners can be read against it
+  const st = SPIN.stats;
+  c.strokeStyle = "rgba(92,102,112,0.6)"; c.setLineDash([2, 3]); c.lineWidth = 1;
+  for (const fx of [st.lo20, st.hi20]){ c.beginPath(); c.moveTo(P.X(fx), P.T); c.lineTo(P.X(fx), P.h - P.B); c.stroke(); }
+  c.setLineDash([]); c.fillStyle = "#5C6670"; c.textAlign = "center";
+  c.fillText("20 dB", P.X(st.lo20), P.T + 48); c.fillText("20 dB", P.X(st.hi20), P.T + 48);
+
+  // lower and upper 6 dB edges of each window, record time downward
+  const tS = (S, k) => S.tc[k] / 1000 + (LINE.delayMs || 0) / 1000;
+  const t0 = tS(SPIN, 0), t1 = tS(SPIN, SPIN.rows - 1);
+  const E = plotFrame($("edges"), [0, fmax], [t1, t0], "frequency (Hz)", "window center (s)");
+  if (!E) return;
+  const edge = (S, key) => S.rowStats.map(r => r[key]), ts = S => S.tc.map((_, k) => tS(S, k));
+  plotLine(E, edge(SPIN, "lo6"), ts(SPIN), "#16191C", 1.6);
+  plotLine(E, edge(SPIN, "hi6"), ts(SPIN), "#16191C", 1.6);
+  if (out){ plotLine(E, edge(out, "lo6"), ts(out), "#841617", 1.6); plotLine(E, edge(out, "hi6"), ts(out), "#841617", 1.6); }
+  const e = E.ctx; e.font = "10px Barlow, Arial, sans-serif"; e.textBaseline = "top"; e.textAlign = "left";
+  e.fillStyle = "#16191C"; e.fillText("input", E.w - E.R - 70, E.T + 6);
+  if (out){ e.fillStyle = "#841617"; e.fillText("balanced", E.w - E.R - 70, E.T + 20); }
+}
+
+function checks(){
+  if (!QB){ $("checks").innerHTML = '<p class="hint" style="color:var(--chalk-dim)">The checks appear once balancing has run.</p>'; return; }
+  const q = QB;
+  $("checks").innerHTML = renderChecks([
+    {name: "Change in level above the band", before: "–", now: q.hasAbove ? (q.noiseDb > 0 ? "+" : "") + fmt(q.noiseDb, 1) + " dB" : "–", nowVal: q.noiseDb, prev: PREVB && PREVB.noiseDb,
+     meaning: "Level change above the upper 20 dB edge of the input, relative to the change inside its 6 dB band. Those frequencies hold mostly noise; a taper corner f4 at the 20 dB edge lowers them.",
+     flag: q.hasAbove && q.noiseDb > 6 ? "Above 6 dB: noise outside the band is being raised toward the level of the signal." : ""},
+    {name: "Fall of the upper 6 dB edge, top to bottom", before: fmt(q.spreadIn, 1) + " Hz", now: fmt(q.spreadOut, 1) + " Hz", nowVal: q.spreadOut, prev: PREVB && PREVB.spreadOut,
+     meaning: "How far the upper edge of the band drops from the shallowest window to the deepest. Balancing in time reduces it.", flag: ""},
+    {name: "Correlation between neighboring traces", before: fmt(q.contIn, 2), now: fmt(q.contOut, 2), nowVal: q.contOut, prev: PREVB && PREVB.contOut,
+     meaning: "Lateral continuity. Raising frequencies where the traces carry little shared signal lowers it.",
+     flag: q.contOut < q.contIn - 0.05 ? "Lower than the input by more than 0.05: much of what was raised differs from trace to trace." : ""}
+  ]);
+  PREVB = q;
+}
+$("btnStart").addEventListener("click", async () => {
+  const band = await kvGet("band");
+  if (band) setFromBand(band, 0.5 / (FP.input.dt * 1e-6));
+  $("bStr").value = 0.7; $("bFlat").value = 0.3; $("bNb").value = 8; $("bFloor").value = 5;
+  FP.cfg.syncLabels(); drawSpec();
+});
+["f1","f2","f3","f4"].forEach(k => $(k).addEventListener("input", () => drawSpec()));
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/glossary.css">
+<link rel="stylesheet" href="../css/style.css">
+<title>5. Attributes — Analyze 2D</title>
+</head>
+<body>
+<div class="dash">
+  <aside class="side" id="side">
+    <h2>Attributes<button class="help" data-help="compare">Learn more</button></h2>
+    <div class="guide"><p>Tick the attributes to compute and press Show. Each one is drawn
+    under the section on the same axes, and the table below the panels gives the correlation
+    between every pair.</p></div>
+    <div class="checks" id="checks"></div>
+    <div class="btnrow">
+      <button class="primary" id="btnShow">Show selected</button>
+      <button id="btnDefault">Default six</button>
+      <button id="btnNone">Clear</button>
+    </div>
+
+    <h2>Windows</h2>
+    <label>Event window <b><span id="v-aw"></span> ms</b></label>
+    <input type="range" id="attrWin" min="4" max="200" step="2" value="20">
+    <label>Interval window <b><span id="v-awi"></span> ms</b></label>
+    <input type="range" id="attrWinI" min="20" max="600" step="10" value="100">
+    <label>Band center frequency <b><span id="v-fc"></span> Hz</b></label>
+    <input type="range" id="attrFc" min="4" max="120" step="1" value="30">
+    <label>Structure-tensor window <b><span id="v-ts"></span> samples</b></label>
+    <input type="range" id="tSig" min="0.8" max="8" step="0.1" value="3">
+    <label>Teager-Kaiser derivative length <b><span id="v-dl"></span> points</b></label>
+    <input type="range" id="attrDl" min="5" max="9" step="2" value="7">
+    <p class="hint" id="winInfo"></p>
+
+
+    <h2>Co-rendering<button class="help" data-help="compare">Learn more</button></h2>
+    <label>Attribute opacity over the seismic <b><span id="v-alpha"></span></b></label>
+    <input type="range" id="alpha" min="0.2" max="1" step="0.05" value="1">
+    <label>Panel height <b><span id="v-ph"></span> px</b></label>
+    <input type="range" id="panelH" min="160" max="700" step="20" value="340">
+    <p class="hint">At 1 each panel shows the attribute alone. Below 1 the attribute is drawn over the
+    seismic amplitude, so the reflections show through it. The color map of each panel is chosen on the panel.</p>
+
+    <h2>Relief shading<button class="help" data-help="relief">Learn more</button></h2>
+    <label>Light from, azimuth <b><span id="v-az"></span>°</b></label>
+    <input type="range" id="relAz" min="0" max="355" step="5" value="315">
+    <label>Light elevation <b><span id="v-alt"></span>°</b></label>
+    <input type="range" id="relAlt" min="5" max="85" step="1" value="30">
+    <label>Relief <b>×<span id="v-relZ"></span></b></label>
+    <input type="range" id="relZ" min="0.05" max="8" step="0.05" value="1">
+    <label>Smoothing <b><span id="v-relSm"></span> periods</b></label>
+    <input type="range" id="relSm" min="0" max="2" step="0.05" value="0.4">
+    <label>Surface<select id="relSurf"><option value="env">Envelope</option><option value="amp">Amplitude</option></select></label>
+    <div class="btnrow"><button id="btnRelAuto">Relief from the data</button></div>
+    <p class="hint" id="relInfo">Relief is solved for 2% of the image in full shadow until the slider is moved.
+    These settings apply to relief shading and relief over amplitude.</p>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="status"><span id="where"></span><span class="busy" id="busy" hidden></span></div>
+    <div class="banner" id="stripe" hidden></div>
+    <div class="panels" id="panels"></div>
+    <div class="figrow">
+      <div><h3>Correlation between the displayed attributes</h3><div class="corr" id="corr"></div></div>
+      <div class="note" id="note"></div>
+    </div>
+    <div id="next"></div>
+  </main>
+</div>
+
+<script src="../js/store.js"></script>
+<script src="../js/dsp.js"></script>
+<script src="../js/spectrum.js"></script>
+<script src="../js/display.js"></script>
+<script src="../js/attributes.js"></script>
+<script src="../js/help.js"></script>
+<script src="../js/glossary.js"></script>
+<script src="../js/common.js"></script>
+<script>
+const GROUPS = [
+  ["Amplitude", ["envelope", "rms", "sweetness", "tke", "tkv", "avt", "rai"]],
+  ["Phase and frequency", ["insphase", "cosphase", "unwrap", "insfreq", "wavfreq", "wavphase", "avgfreq", "avgband", "band", "rgb"]],
+  ["Geometric", ["dip", "linearity", "coherence"]],
+  ["Display", ["relief", "reliefrgb"]]
+];
+const DEFAULT_SET = ["avt", "rms", "dip", "coherence", "avgfreq", "avgband"];
+const TENSOR_KEYS = ["dip", "linearity", "coherence"];
+let SEC = null, SPEC = null, TENSOR = null, TSIG = -1, SHOWN = [], PIDS = [];
+
+let RELZ_TOUCHED = false, CMAPS_SET = {};
+const CMAP_CHOICES = [["magma","Magma"],["viridis","Viridis"],["cividis","Cividis"],["batlow","Batlow"],
+  ["gray","Gray"],["graygb","Gray, reversed"],["coolwarm","Cool to warm"],["vik","Vik"],["bwr","Blue, white, red"],["seis","Blue, black, red"]];
+/* Relief is solved for until the slider is moved, then taken from it. */
+function reliefScale(src, p, nx, ns){
+  if (RELZ_TOUCHED) return p.relZ;
+  const z = reliefScaleFor(src, nx, ns, p.relAz, p.relAlt, 2.0);
+  $("relZ").value = z; $("v-relZ").textContent = z.toFixed(2);
+  return z;
+}
+
+(async function init(){
+  await pageShell("attributes");
+  if (!LINE){ emptyState($("stage"), "No line is open."); return; }
+  SEC = sectionOf(await stageInput(null));
+  if (!SEC || SEC.stage === "raw"){ emptyState($("stage"), "The crop has not been stored yet."); return; }
+  $("where").innerHTML = "Computed on <b>" + STAGE_NAMES[SEC.stage] + "</b>";
+  const band = await kvGet("band");
+  SPEC = band ? {stats: {fpk: band.fpk}} : null;
+  $("checks").innerHTML = GROUPS.map(([g, keys]) => "<h4>" + g + "</h4>" + keys.map(k =>
+    '<label><input type="checkbox" value="' + k + '"> ' + ATTR_META[k].n +
+    '<button class="help" data-help="' + k + '" type="button">?</button></label>').join("")).join("");
+  const ph = await kvGet("attrPanelH");
+  if (ph) $("panelH").value = ph;
+  const saved = await kvGet("attrParams");
+  if (saved){
+    ["attrWin", "attrWinI", "attrFc", "tSig", "attrDl"].forEach(k => { if (saved[k] !== undefined) $(k).value = saved[k]; });
+    $("winInfo").textContent = "Windows as last set on this page.";
+  } else if (band && (band.fc || band.fpk) > 0){
+    const f = band.fc || band.fpk;
+    $("attrWin").value = Math.max(4, Math.round(1500 / f / 2) * 2);
+    $("attrWinI").value = Math.max(20, Math.round(3000 / f / 10) * 10);
+    $("attrFc").value = Math.round(f);
+    $("tSig").value = Math.max(1.5, Math.min(6, Math.round(1000 / f / (SEC.dt / 1000) / 2 * 10) / 10));
+    $("winInfo").textContent = "Windows start at 1.5 and 3 periods of the " + f.toFixed(0) +
+      " Hz center of the band measured on step 2, and the tensor window at half a period.";
+  } else {
+    $("winInfo").textContent = "Step 2 has not measured the band, so the windows are generic values for 2 to 4 ms data.";
+  }
+  const sel = (await kvGet("attrSel")) || DEFAULT_SET;
+  setSelection(sel);
+  syncLabels();
+  displayControls($("side"), () => { drawSeisPanel(); });
+  makePanel($("panels"), "pSeis", "Seismic amplitude", {height: +$("panelH").value});
+  attachReadout("pSeis"); linkGroup("pSeis");
+  viewBar($("stage"));
+  onView(redrawAll);
+  drawSeisPanel();
+  $("next").innerHTML = nextLink("attributes");
+  glossaryScan(document.querySelector("aside"));
+  show();
+})();
+
+function params(){
+  return {attrWin: +$("attrWin").value, attrWinI: +$("attrWinI").value, attrFc: +$("attrFc").value,
+          tSig: +$("tSig").value, attrDl: +$("attrDl").value,
+          relAz: +$("relAz").value, relAlt: +$("relAlt").value, relSurf: $("relSurf").value,
+          relSm: +$("relSm").value, relZ: +$("relZ").value, cmap: DISP.cmap};
+}
+function syncLabels(){
+  $("v-aw").textContent = $("attrWin").value; $("v-awi").textContent = $("attrWinI").value;
+  $("v-fc").textContent = $("attrFc").value; $("v-ts").textContent = (+$("tSig").value).toFixed(1);
+  $("v-dl").textContent = $("attrDl").value;
+  $("v-alpha").textContent = (+$("alpha").value).toFixed(2);
+  $("v-ph").textContent = $("panelH").value;
+  $("v-az").textContent = $("relAz").value; $("v-alt").textContent = $("relAlt").value;
+  $("v-relZ").textContent = (+$("relZ").value).toFixed(2); $("v-relSm").textContent = (+$("relSm").value).toFixed(2);
+}
+function selected(){ return [...document.querySelectorAll("#checks input:checked")].map(x => x.value); }
+function setSelection(keys){ document.querySelectorAll("#checks input").forEach(x => { x.checked = keys.includes(x.value); }); }
+
+function drawSeisPanel(){ if (SEC) drawSeis("pSeis", SEC, SEC.data); }
+
+async function show(){
+  const keys = selected();
+  const p = params();
+  await kvSet("attrSel", keys);
+  await kvSet("attrParams", {attrWin: p.attrWin, attrWinI: p.attrWinI, attrFc: p.attrFc, tSig: p.tSig, attrDl: p.attrDl});
+  $("btnShow").disabled = true;
+  PIDS.forEach(id => { const el = $(id); if (el) el.remove(); });
+  PIDS = []; SHOWN = [];
+  if (keys.some(k => TENSOR_KEYS.includes(k)) && (!TENSOR || TSIG !== p.tSig)){
+    setBusy("Structure tensor…"); await nextFrame();
+    TENSOR = computeTensor(SEC.data, SEC.nx, SEC.ns, p.tSig); TSIG = p.tSig;
+  }
+  const C = attrCache(SEC.data, SEC.nx, SEC.ns, SEC.dt, TENSOR);
+  for (const k of keys){
+    setBusy("Computing " + ATTR_META[k].n.toLowerCase() + "…");
+    await nextFrame();
+    let m;
+    try { m = computeOne(k, p, C); } catch (e){ console.error(e); continue; }
+    if (!m) continue;
+    const id = "pa-" + k;
+    makePanel($("panels"), id, m.title, {height: +$("panelH").value, tools: !m.rgb});
+    PIDS.push(id);
+    if (!m.rgb){
+      $(id + "-tools").innerHTML = 'Color map <select data-cmap="' + k + '">' +
+        CMAP_CHOICES.map(([v, n]) => '<option value="' + v + '">' + n + "</option>").join("") + "</select>";
+      $(id + "-tools").querySelector("select").value = CMAPS_SET[k] || m.cmapDefault;
+    }
+    SHOWN.push(m);
+    drawOne(m, true);
+    attachReadout(id); linkGroup(id);
+  }
+  setBusy("");
+  $("btnShow").disabled = false;
+  correlation();
+  striping();
+}
+
+/* Guide lines: the pointer position drawn on every panel on the page. */
+function linkGroup(id){
+  const fr = $(id + "-frame");
+  fr.addEventListener("mousemove", ev => {
+    const r = fr.getBoundingClientRect();
+    const u = (ev.clientX - r.left) / r.width, v = (ev.clientY - r.top) / r.height;
+    ["pSeis", ...PIDS].forEach(k => {
+      const cv = $(k + "-ovl"); if (!cv) return;
+      const {ctx, w, h} = fitCanvas(cv);
+      ctx.strokeStyle = "rgba(255,209,102,0.9)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(u * w, 0); ctx.lineTo(u * w, h); ctx.moveTo(0, v * h); ctx.lineTo(w, v * h); ctx.stroke();
+    });
+  });
+  fr.addEventListener("mouseleave", () => ["pSeis", ...PIDS].forEach(k => { const cv = $(k + "-ovl"); if (cv) fitCanvas(cv); }));
+}
+
+function correlation(){
+  const real = SHOWN.filter(m => m.a);
+  if (real.length < 2){ $("corr").innerHTML = '<p class="hint">Two or more single-valued attributes are needed.</p>'; $("note").innerHTML = ""; return; }
+  const N = real[0].a.length, stride = Math.max(1, Math.floor(N / 120000));
+  const cols = real.map(m => {
+    const v = []; for (let k = 0; k < N; k += stride) v.push(isFinite(m.a[k]) ? m.a[k] : 0);
+    let mu = 0; for (const x of v) mu += x; mu /= v.length;
+    let sd = 0; for (const x of v) sd += (x - mu) * (x - mu); sd = Math.sqrt(sd / v.length) || 1;
+    return {v, mu, sd};
+  });
+  const n = real.length, R = [];
+  for (let i = 0; i < n; i++){ R.push([]); for (let j = 0; j < n; j++){
+    if (j < i){ R[i].push(R[j][i]); continue; }
+    const A = cols[i], B = cols[j]; let acc = 0;
+    for (let k = 0; k < A.v.length; k++) acc += (A.v[k] - A.mu) * (B.v[k] - B.mu);
+    R[i].push(Math.max(-1, Math.min(1, acc / (A.v.length * A.sd * B.sd))));
+  }}
+  const lut = buildLUT("vik");
+  const cell = r => { const q = Math.round((r + 1) / 2 * 511), c = [lut[q*3], lut[q*3+1], lut[q*3+2]];
+    return 'style="background:rgb(' + c + ');color:' + (c[0]*.299 + c[1]*.587 + c[2]*.114 > 140 ? "#16191C" : "#fff") + '"'; };
+  let h = "<table><tr><th></th>" + real.map(m => "<th>" + ATTR_META[m.key].s + "</th>").join("") + "</tr>";
+  for (let i = 0; i < n; i++){
+    h += "<tr><th>" + ATTR_META[real[i].key].s + "</th>";
+    for (let j = 0; j < n; j++) h += "<td " + cell(R[i][j]) + (Math.abs(R[i][j]) > 0.8 && i !== j ? ' class="hi"' : "") + ">" + (i === j ? "1" : R[i][j].toFixed(2)) + "</td>";
+    h += "</tr>";
+  }
+  $("corr").innerHTML = h + "</table>";
+  const pairs = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (Math.abs(R[i][j]) > 0.8)
+    pairs.push(ATTR_META[real[i].key].n.toLowerCase() + " and " + ATTR_META[real[j].key].n.toLowerCase() + " (" + R[i][j].toFixed(2) + ")");
+  $("note").innerHTML = "<p>" + (pairs.length
+    ? "Correlated above 0.8: " + pairs.join("; ") + ". A pair this close carries close to one measurement between them, and counts as a single dimension in the self-organizing map on the next step."
+    : "No pair of the displayed attributes correlates above 0.8.") +
+    " Correlation is computed on the signed values, so a signed attribute and a magnitude can read near zero while their magnitudes follow each other.</p>";
+}
+
+/* Lateral continuity: the correlation between neighboring traces. Most of the
+   frequency and phase attributes are computed one trace at a time, so low
+   values there come from the input rather than from the attribute. */
+/* Stripes are lateral changes that persist down the trace. For each attribute
+   the correlation between neighboring traces is measured twice, after clipping
+   to the 1st-99th percentile so that a few spikes (instantaneous frequency has
+   many) cannot decide it: once as computed, and once after averaging each trace
+   down over the interval window. Trace-to-trace noise that changes with time
+   averages out, so the second figure rises. A stripe is the same on every
+   sample of a trace, so it survives the averaging and the figure does not
+   rise. On SCAN029 with a random gain of 0.6 to 1.4 put on every trace, the
+   envelope reads 0.84 before and 0.84 after; on the line as it is, 0.94 and
+   0.98. Wrapped and oscillating phase attributes are left out, since averaging
+   them down the trace takes them toward zero whatever their continuity. */
+const STRIPE_SKIP = ["insphase", "cosphase", "unwrap", "wavphase"];
+function clipTo(a){
+  const n = a.length, step = Math.max(1, Math.floor(n / 200000)), s = [];
+  for (let k = 0; k < n; k += step) if (isFinite(a[k])) s.push(a[k]);
+  s.sort((x, y) => x - y);
+  const lo = s[Math.floor(s.length * 0.01)], hi = s[Math.floor(s.length * 0.99)];
+  const c = new Float32Array(n);
+  for (let k = 0; k < n; k++){ const v = isFinite(a[k]) ? a[k] : 0; c[k] = v < lo ? lo : (v > hi ? hi : v); }
+  return c;
+}
+function downAverage(a, nx, ns, h){
+  const o = new Float32Array(a.length);
+  for (let i = 0; i < nx; i++){
+    const b = i * ns; let acc = 0, c = 0;
+    for (let j = 0; j <= Math.min(ns - 1, h); j++){ acc += a[b + j]; c++; }
+    for (let j = 0; j < ns; j++){
+      o[b + j] = acc / c;
+      const ad = j + h + 1, sb = j - h;
+      if (ad < ns){ acc += a[b + ad]; c++; }
+      if (sb >= 0){ acc -= a[b + sb]; c--; }
+    }
+  }
+  return o;
+}
+function striping(){
+  const h = Math.max(2, Math.round(+$("attrWinI").value / 2 / (SEC.dt / 1000)));
+  const bad = [];
+  for (const m of SHOWN){
+    if (!m.a || STRIPE_SKIP.includes(m.key)) continue;
+    const c = clipTo(m.a);
+    const r0 = lateralContinuity(c, SEC.nx, SEC.ns), r1 = lateralContinuity(downAverage(c, SEC.nx, SEC.ns, h), SEC.nx, SEC.ns);
+    if (r0 === null || r1 === null) continue;
+    m.stripe = [r0, r1];
+    if (r1 < 0.9 && r1 - r0 < 0.03) bad.push([m, r0, r1]);
+  }
+  if (!bad.length){ $("stripe").hidden = true; return; }
+  $("stripe").hidden = false;
+  $("stripe").innerHTML = "<h3>These attributes are striped<button class=\"help\" data-help=\"stripe\">Learn more</button></h3>" +
+    "<p>Correlation between neighboring traces, as computed and after averaging each trace down over the " + $("attrWinI").value +
+    " ms interval window: " + bad.map(([m, a, b]) => m.title.toLowerCase() + " <b>" + a.toFixed(2) + "</b> and <b>" + b.toFixed(2) + "</b>").join(", ") +
+    ". The figure stays below 0.9 and does not rise with the averaging, so the trace-to-trace changes persist down the traces, which is what a " +
+    "vertical stripe is. Stripes carry into the self-organizing map as classes that change from trace to trace. " +
+    "Structure-oriented smoothing (step 3) adds lateral continuity to the input, and its removed panel shows the " +
+    "energy it takes out.</p>" +
+    '<p><a href="3-sos.html">Step 3: structure-oriented smoothing</a></p>';
+}
+
+["attrWin", "attrWinI", "attrFc", "tSig", "attrDl"].forEach(k => $(k).addEventListener("input", syncLabels));
+$("btnShow").addEventListener("click", show);
+$("btnDefault").addEventListener("click", () => setSelection(DEFAULT_SET));
+$("btnNone").addEventListener("click", () => setSelection([]));
+function drawOne(m, withNote){
+  const id = "pa-" + m.key, al = +$("alpha").value;
+  if (m.rgb) drawRGBPanel(id, SEC, m.rgb, m.scales, withNote ? m.unit : undefined, al, SEC.data);
+  else drawAttrPanel(id, SEC, m.a, m.vmin, m.vmax, CMAPS_SET[m.key] || m.cmapDefault, m.cbLabel, withNote ? m.unit : undefined, al, SEC.data);
+}
+function redrawAll(){ drawSeisPanel(); SHOWN.forEach(m => drawOne(m, false)); }
+
+/* Only the two relief attributes depend on the lighting, so only they are
+   computed again when it changes. */
+const relight = debounce(async () => {
+  const keys = SHOWN.filter(m => m.key === "relief" || m.key === "reliefrgb").map(m => m.key);
+  if (!keys.length) return;
+  setBusy("Shading…"); await nextFrame();
+  const C = attrCache(SEC.data, SEC.nx, SEC.ns, SEC.dt, TENSOR);
+  const p = params();
+  for (const k of keys){
+    const m = computeOne(k, p, C);
+    const q = SHOWN.findIndex(x => x.key === k);
+    SHOWN[q] = m; drawOne(m, true);
+  }
+  setBusy("");
+}, 300);
+["relAz", "relAlt", "relSm", "relSurf"].forEach(k => $(k).addEventListener("input", () => { syncLabels(); relight(); }));
+$("relZ").addEventListener("input", () => { RELZ_TOUCHED = true; syncLabels(); relight(); });
+$("btnRelAuto").addEventListener("click", () => { RELZ_TOUCHED = false; relight(); });
+$("alpha").addEventListener("input", () => { syncLabels(); SHOWN.forEach(m => drawOne(m, false)); });
+
+/* Panel height: every panel on the page, then a redraw at the new size. */
+const resizePanels = debounce(async () => {
+  const h = +$("panelH").value;
+  document.querySelectorAll("#panels .plot").forEach(el => el.style.setProperty("--ph", h + "px"));
+  await nextFrame();
+  redrawAll();
+  kvSet("attrPanelH", h);
+}, 120);
+$("panelH").addEventListener("input", () => { syncLabels(); resizePanels(); });
+
+document.addEventListener("change", e => {
+  const k = e.target.dataset && e.target.dataset.cmap;
+  if (!k) return;
+  CMAPS_SET[k] = e.target.value;
+  const m = SHOWN.find(x => x.key === k); if (m) drawOne(m, false);
+});
+window.addEventListener("resize", debounce(redrawAll, 250));
+</script>
+<script src="../assets/count.js"></script>
+</body>
+</html>

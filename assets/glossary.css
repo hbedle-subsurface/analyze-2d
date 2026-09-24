@@ -1,0 +1,64 @@
+/* ===========================================================================
+   Glossary — marked terms and the card they open.
+   Kept in its own file so style.css stays identical across the other sites.
+   Fold it into style.css once the same glossary runs on more than one of them.
+   =========================================================================== */
+
+.gterm {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: help;
+  border-bottom: 1px dotted var(--crimson);
+  text-align: inherit;
+}
+.gterm:hover { background: var(--cream); border-bottom-style: solid; }
+
+.gcard {
+  position: absolute;
+  z-index: 60;
+  width: min(340px, calc(100vw - 24px));
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-top: 3px solid var(--crimson);
+  box-shadow: 0 10px 26px -12px rgba(22, 25, 28, .45);
+  padding: 14px 16px 13px;
+}
+.gcard h4 {
+  margin: 0 0 8px;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  padding-right: 20px;
+}
+.gcard p { margin: 0 0 9px; font-size: 14px; line-height: 1.55; color: #40474E; }
+.gcard p:last-child { margin-bottom: 0; }
+
+.gcard .guse { border-top: 1px solid var(--rule); padding-top: 9px; }
+.gcard .guse span {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--crimson);
+  margin-right: 5px;
+}
+
+.gcard .gsee { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 13px; }
+.gcard .gsee .gterm { color: var(--crimson); border-bottom-style: solid; }
+
+.gcard .gclose {
+  position: absolute;
+  top: 6px; right: 8px;
+  border: 0; background: none;
+  font-size: 19px; line-height: 1;
+  color: var(--slate);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.gcard .gclose:hover { color: var(--crimson); }
+
+@media print { .gcard { display: none; } .gterm { border-bottom: 0; } }
